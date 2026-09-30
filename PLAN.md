@@ -52,7 +52,20 @@
 | Logo placement | Fixed pixel grid (e.g. 1080² at 64,64 w280) | Fractions "measured off approved reference ads" (sq 25.3% width, 5.1% margin) |
 | Engine | QA, colour and CTA lock, flags, repaint, run log, balance | None of those. JPEG cap 700 KB |
 
-➡️ **Tell me, per template: keep v16, switch to the new version, or keep both.** Anything switched gets new Logo Grid rows, new prompts and a test pass (§6).
+**✅ Resolved (Sept 30):** Danah shared the template library `HitLights_Ad_Templates.html`, and it matches **v16** on all five templates:
+- T2 is job-site contractor trust
+- T3 is the dark violet gradient #241A30→#120C18
+- T5 uses the gold #EBA800 pill with a → arrow and no violet
+
+**The template library is the source of truth, and it goes into the repo at `reference/`.** The `ad-builder.html` variants are dropped.
+
+**Where the library differs from the v16 engine (to handle in Phase 2):**
+
+| Library rule | v16 today | Plan |
+|---|---|---|
+| Two logo colourways only (white/black), "never recolour, no violet" | T2 uses a **violet** (#55426A) logo in the bubble | **Ask Danah.** Default to the library: **black** in the T2 bubble |
+| A third file, `hitlights-mark.png` (the mark alone, where the lockup won't fit) | Not used | Commit it to the repo. Not used by any template yet |
+| Colourway is picked from the actual background. A bright photo is softly darkened behind a white logo | Fixed colourway per template. Fallback to the other colourway flags CONTRAST. T4/T5 get a soft shadow | Keep v16 behaviour (it's proven). Revisit if CONTRAST flags show up in Phase 6 |
 
 ---
 
@@ -226,7 +239,17 @@ Each phase has an exit test. Nothing moves forward until its exit test passes.
 | Unclear template direction (D1) | High until answered | Decide before Phase 2 |
 
 ## 8. What I need from you to start
-1. **D1–D5 answers** (especially D1, per template).
-2. **Credentials** (Phase 0): Higgsfield API key, a Shopify custom app token, an Anthropic API key, and a Google service account (or approval for me to walk you through creating one).
-3. **10–20 existing raw renders** across templates (Higgsfield history or Drive), for golden tests. This saves credits.
-4. **A credit budget** for the spike and acceptance (~100 credits).
+Decisions D1–D5 are settled: v16 templates, and my defaults for hosting, sign-in and models. What's left:
+
+1. **One answer:** T2 logo colour in the bubble. Black (the library rule) or violet (v16)?
+2. **Three API keys** to add as environment variables in the Claude Code environment settings (never pasted into chat):
+
+   | Variable | Where it comes from | Needed for |
+   |---|---|---|
+   | `HIGGSFIELD_API_KEY` (+ `HIGGSFIELD_API_SECRET` if issued) | Higgsfield account → API keys | Rendering. **Required** |
+   | `SHOPIFY_STORE` + `SHOPIFY_ADMIN_TOKEN` | Shopify admin → custom app with `read_products` and `read_inventory` | Product search. Optional (a pasted URL works without it) |
+   | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys (pay-as-you-go, ~$20 to start) | "Write it for me" + text check. Optional at first |
+
+3. **Google Drive is postponed.** Downloads work without it. It gets set up at deploy time (Phase 7) with a guided walkthrough.
+4. **Nothing to collect for test renders.** I pull recent generations from Higgsfield directly, with your OK.
+5. **Credits:** about 100 Higgsfield credits available over the build.

@@ -1,5 +1,24 @@
 # HitLights Ad Builder — Standalone App Plan
 
+## Build status (Sept 30, 2026)
+
+| Phase | Status | Notes |
+|---|---|---|
+| 1 Repo foundation | ✅ Done | `legacy/` oracle, manifests, CI workflow, Dockerfile |
+| 2 Brand engine + parity | ✅ Done | 45 parity tests, byte-identical to v16. 35 finishing tests |
+| 3 Integrations | ✅ Built, mocked tests pass | **Live tests blocked:** this dev sandbox's network policy denies Shopify and Higgsfield hosts |
+| 4 Run orchestrator | ✅ Done | Persisted, resumable, never re-pays for a submitted render. Credit caps |
+| 5 UI | ✅ Done | v16 layout. Checked in a headless browser at 360–1280 px |
+| 0 Live Higgsfield check | ⏳ Next | First real render set (6 credits) once the app runs somewhere that can reach Higgsfield |
+| 6 Acceptance matrix | ⏳ | ~90 credits |
+| 7 Deploy | ⏳ | Needs a host choice + `APP_PASSWORD` |
+
+**Architecture changes from the plan below (decided during the build):**
+- **Server is Node, not FastAPI.** The page's engine (prompts, limits) is shared verbatim between browser and server, and finishing still runs v16's Python `finish.py` unchanged, as a subprocess. This carries less porting risk than rewriting the JS prompts in Python.
+- **Higgsfield via its official MCP server + one-time OAuth sign-in**, not the key-based Cloud API. The Cloud API bills a separate prepaid dollar balance, and Nano Banana Pro availability there is unconfirmed. The MCP path is exactly what v16 used: the same tools, model and subscription credits. `HIGGSFIELD_API_KEY` is kept in config for a later switch.
+- **LLM is provider-agnostic.** Choices: `anthropic` (defaults `claude-haiku-4-5` for drafting at $1/$5 per MTok, `claude-sonnet-5-5` for the vision spelling check at $2/$10), `openai-compatible` (OpenAI / Gemini / OpenRouter), or `none`. At these prompt sizes a full set costs roughly 1–2¢ of LLM usage.
+- **Logos** come from the template library (byte-identical to v16's display copies; same rendered logo height at every ad size), committed in `assets/logos/`.
+
 **Status:** Plan only. Nothing is built yet.
 **Goal:** Rebuild the HitLights Ad Builder (kit v16) as a standalone web app that doesn't depend on a Claude account, artifact runtime or connectors. It must produce the same output as v16 (same prompts, Logo Grid, finishing and QA), with Higgsfield as the renderer. It should be more stable than v16.
 **Baseline:** `hitlights-ad-builder-rebuild-kit.zip` (builder v16, Sept 25 2026). This is the version that "works great".

@@ -1,5 +1,3 @@
-# Finishing (finishing/process.py + finish.py). Pinned for reproducible output.
+# Finishing runtime (finishing/process.py + finish.py). Pinned for reproducible output.
 numpy==2.4.6
 pillow==12.3.0
-# tests only
-pytest==9.1.1

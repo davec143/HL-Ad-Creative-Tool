@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HitLights Ad Builder</title>
+<link rel="icon" href="/assets/logos/hitlights-mark.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="mast"><div class="mast-in">
+  <div>
+    <h1>HitLights Ad Builder</h1>
+    <p>Pick a product, write the message, get the three ad sizes — generated as one image, to the Andromeda spec.</p>
+  </div>
+  <span class="badge">1080×1080 · 1080×1920 · 1200×628</span>
+</div></header>
+
+<div class="wrap">
+  <div class="card login" id="login" hidden>
+    <h2>Sign in</h2>
+    <div class="bd">
+      <div class="f"><label for="pw">Team password</label><input type="password" id="pw" autocomplete="current-password" style="width:100%;font-size:15px;padding:9px 11px;border:1px solid var(--line-strong);border-radius:4px;background:var(--ground);color:var(--text)"></div>
+      <button class="btn-gold" id="pwgo">Sign in</button>
+      <p class="hint" id="pwhint"></p>
+    </div>
+  </div>
+
+  <div id="app" hidden>
+  <div id="gate" class="gate" hidden></div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2><span class="n">01</span> Product image</h2>
+        <div class="bd">
+          <div class="seg" role="tablist">
+            <button id="tab-shop" role="tab" aria-selected="true">Search the catalog</button>
+            <button id="tab-url" role="tab" aria-selected="false">Paste an image URL</button>
+          </div>
+
+          <div id="pane-shop">
+            <div class="f">
+              <label for="q">Product name or SKU</label>
+              <div style="display:flex;gap:8px">
+                <input type="text" id="q" placeholder="EZDim Pro" autocomplete="off">
+                <button class="btn-quiet" id="search" style="white-space:nowrap">Search</button>
+              </div>
+              <p class="hint">Searches active products in the HitLights Shopify catalog and uses the product's own photo.</p>
+            </div>
+            <div class="results" id="results"></div>
+          </div>
+
+          <div id="pane-url" hidden>
+            <div class="f">
+              <label for="imgurl">Public image URL</label>
+              <input type="url" id="imgurl" placeholder="https://cdn.shopify.com/…/product.jpg" autocomplete="off">
+              <p class="hint">Must be a direct https link to an image on the open web — a Shopify CDN link is easiest.</p>
+            </div>
+            <div class="f">
+              <label for="imgname">Product name — used for the Drive folder</label>
+              <input type="text" id="imgname" placeholder="EZDim Pro 24V 100W" autocomplete="off">
+            </div>
+          </div>
+
+          <div class="note" id="picked" style="margin-top:13px" hidden></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="n">02</span> Message</h2>
+        <div class="bd">
+          <div class="f">
+            <label for="ground">Ad template — from the HitLights Ad Templates</label>
+            <select id="ground">
+              <optgroup label="Pillar A · Pro-Trust">
+                <option value="t1">Template 1 — Collage Hero · deep violet, pro/installer</option>
+                <option value="t2">Template 2 — Speech-Bubble Hero · job-site photo, B2B/contractor</option>
+                <option value="t5">Template 5 — Glow Room Hero · dark LED-lit interior, pro brand</option>
+              </optgroup>
+              <optgroup label="Pillar B · Promo Urgency">
+                <option value="t3">Template 3 — Discount Deadline · sales, retargeting, deadlines</option>
+              </optgroup>
+              <optgroup label="Pillar C · Aesthetic Lifestyle">
+                <option value="t4">Template 4 — Styled Room Hero · warm cream, homeowners</option>
+              </optgroup>
+            </select>
+            <p class="hint" id="tplnote"></p>
+            <p class="hint" style="margin-top:2px">Fields show the template's sample copy until you edit them — replace it with real, documented claims before generating.</p>
+          </div>
+          <div class="f draftbox" id="draftbox" hidden>
+            <label for="angle">Draft it for me — what's the angle?</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input type="text" id="angle" placeholder="for electricians · for a bedroom glow-up · lead on the warranty" style="flex:1 1 240px">
+              <button class="btn-quiet" id="draft" style="white-space:nowrap">Write it for me</button>
+            </div>
+            <p class="hint" id="drafthint">Reads the product's own listing and fills everything below. Leave the angle blank and it picks one.</p>
+          </div>
+          <div class="two">
+            <div class="f"><label for="h1">Headline line 1</label><input type="text" id="h1"></div>
+            <div class="f"><label for="h2">Headline line 2</label><input type="text" id="h2"></div>
+          </div>
+          <div class="f" id="deadlineWrap" hidden>
+            <label for="deadline">Deadline line — white</label>
+            <input type="text" id="deadline" placeholder="Save 11% Before Sept 30" autocomplete="off">
+            <p class="hint">Use only a real, approved offer and end date. Drafting never writes the offer or the deadline.</p>
+          </div>
+          <div class="f" id="subWrap" hidden>
+            <label for="sub">Subheadline — white, regular weight</label>
+            <input type="text" id="sub" placeholder="Premium LED strips built for consistent performance" autocomplete="off">
+            <p class="hint">One benefit sentence, 5 to 8 words. It wraps onto two lines under the headline.</p>
+          </div>
+          <div class="f" id="proofWrap">
+            <label>Proof points — keep them specific</label>
+            <div class="pp">
+              <input type="text" id="p1">
+              <input type="text" id="p2">
+              <input type="text" id="p3">
+            </div>
+            <p class="hint">Real figures beat adjectives. “60,000+ hours” lands; “premium quality” doesn't.</p>
+          </div>
+          <div class="two">
+            <div class="f"><label for="cta">CTA</label><input type="text" id="cta"></div>
+          </div>
+          <div class="two" id="contactWrap">
+            <div class="f"><label for="phone">Support phone</label><input type="text" id="phone" value="+1 855 768 4135" autocomplete="off"></div>
+            <div class="f"><label for="email">Support email</label><input type="text" id="email" value="customerservice@hitlights.com" autocomplete="off"></div>
+          </div>
+          <p class="hint" id="contactHint" style="margin:-6px 0 14px">Shown as the ad's contact line. Clear either one to leave it out.</p>
+          <div class="f">
+            <label for="scene">The shot — what's happening in the photo</label>
+            <textarea id="scene"></textarea>
+            <p class="hint">Describe a real scene. The product itself is carried over from the image above.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="n">03</span> Build</h2>
+        <div class="bd">
+          <label class="drivechk" for="saveDrive" id="driveWrap" hidden>
+            <input type="checkbox" id="saveDrive" checked>
+            <span><b>Also</b> save to Google Drive — a new dated folder per set. Only files that pass every check are saved. Either way the three finished files appear under Output with download buttons.</span>
+          </label>
+          <button class="btn-gold" id="go">Generate the three sizes</button>
+          <p id="cost"></p>
+          <p class="bhint">Square renders first, then portrait and landscape are built <em>from it</em> — that's what keeps all three the same image. Each finished file is then checked: logo on the grid, brand colour, and every line of text is read back. Takes a few minutes; you can close the tab and come back.</p>
+          <div class="bsep">
+            <button class="btn-quiet" id="packbtn" type="button">Build the prompt pack instead</button>
+            <p class="bhint" id="packhint">Gives you the exact prompts to render by hand if Higgsfield isn't reachable from here.</p>
+          </div>
+          <div id="pack" hidden>
+            <textarea id="packtext" readonly aria-label="Prompt pack"></textarea>
+            <div class="rowbtn">
+              <button class="btn-quiet" id="packcopy" type="button">Copy to clipboard</button>
+              <span class="hint" id="packcopied"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2><span class="n">04</span> Output</h2>
+        <div class="bd">
+          <div class="status" id="log">Waiting for a product and a message.</div>
+          <div class="rowbtn" id="runbtns" hidden></div>
+          <div class="side" id="side" hidden></div>
+          <div class="out" id="out"></div>
+          <div class="out" id="drive"></div>
+        </div>
+      </div>
+
+      <div class="card" id="runsCard" hidden>
+        <h2>Recent sets</h2>
+        <div class="bd"><div id="runs"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>How to use this</h2>
+        <div class="bd">
+          <ol class="howto">
+            <li><p><b>Pick the product.</b> Search the catalog by name or SKU and click the result. The tool uses that product's own photograph from Shopify, so the hardware in the finished ad is the real thing. If a product has several photos, choose the one to build from. Not in Shopify? Switch to the URL tab and paste a direct image link.</p></li>
+            <li><p><b>Check the stock chip.</b> A red chip means zero units on hand — build the creative if you like, but don't put budget behind it until it restocks.</p></li>
+            <li><p><b>Choose the template first.</b> It sets which fields apply and their length limits. <em>T1 Collage Hero</em>: always-on brand for pros and installers. <em>T2 Speech-Bubble Hero</em>: B2B and contractor prospecting. <em>T3 Discount Deadline</em>: sales and deadlines — you write the offer and the deadline yourself. <em>T4 Styled Room Hero</em>: lifestyle for homeowners, no job-site imagery. <em>T5 Glow Room Hero</em>: the “Built For Professionals” look.</p></li>
+            <li><p><b>Write the message, or have it drafted.</b> Type the angle and press <em>Write it for me</em> — it reads the product listing and fills everything in for you to edit. Proof points must carry real figures from the product sheet; if a number isn't documented, leave it out.</p></li>
+            <li><p><b>Describe the shot.</b> One concrete sentence: who is in frame, what they're doing, where. The product carries over from the image you picked.</p></li>
+            <li><p><b>Generate.</b> The square renders first, then portrait and landscape are built from it. A set costs 6 Higgsfield credits. You can close the tab — the set keeps going and shows up under Recent sets.</p></li>
+            <li><p><b>Read the checks on each file.</b> Each file shows where the logo landed and a <em>Text &amp; logo check</em>. A red note means don't use that file yet — press <em>Regenerate this size</em> (2 credits, rebuilt from the same square) or <em>Regenerate the whole set</em> on the square.</p></li>
+            <li><p><b>Take the finished files.</b> Download each size or the whole set as a zip. With Drive on, clean files are also filed in a folder named <em>date + product</em>. The <em>raw render</em> links are the generator's own output before cropping and the logo — never upload those to Ads Manager.</p></li>
+          </ol>
+          <p class="note" style="margin-top:14px"><b>The brand system is already applied.</b> Colours, Montserrat, the gold CTA, the layout order and the photography rules are built into what this tool sends. The logo is never drawn by the generator: the real HitLights file is placed on each finished image at a fixed position per template and size.</p>
+          <p class="note" style="margin-top:9px"><b>Reels aren't built here.</b> The video ad is a separate deliverable — 1080×1920, 5–10 seconds, CTA or contact at the end.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Before you hand it over</h2>
+        <div class="bd">
+          <ul class="chk">
+            <li><p><b>Every check green.</b> Text &amp; logo check passed on all three, no red notes. Recent sets keeps the record.</p></li>
+            <li><p><b>Three files, one image.</b> Look at the side-by-side strip — the same photograph, wording and colours in each.</p></li>
+            <li><p><b>Proof points specific.</b> Every figure traced to the product sheet, never estimated to fill a line.</p></li>
+            <li><p><b>Landing page in stock.</b> Check the SKU in Shopify first.</p></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card kitcard">
+    <h2><span class="n">05</span> Brand kit — the HitLights Ad Templates</h2>
+    <div class="bd">
+      <p class="note">The template library is the source of truth for colours, logo files and placement. Every logo position this tool uses comes from its Logo Grid.</p>
+      <div class="rowbtn"><a class="btn-quiet" href="/reference" target="_blank" rel="noopener" style="text-decoration:none">Open the template library ↗</a></div>
+    </div>
+  </div>
+  </div>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

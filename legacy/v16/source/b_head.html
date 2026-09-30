@@ -1,0 +1,334 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>HitLights Ad Builder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --violet-deep:#523875;--violet:#675185;--gold:#EBA800;--gold-bright:#FBCA10;--ink:#232323;
+  --ground:#F6F4F9;--surface:#FFFFFF;--surface-2:#F0ECF5;--line:#E1DAEC;--line-strong:#CFC4DE;
+  --text:#241E2E;--text-dim:#645A72;--text-faint:#8C8299;
+  --accent:#523875;--on-accent:#fff;
+  --ok:#1E7A5A;--warn:#9A5B00;--stop:#A3322B;
+  --ok-bg:#E3F3EC;--warn-bg:#FBF0DC;--stop-bg:#F9E7E5;
+  --shadow:0 1px 2px rgba(40,26,60,.06),0 8px 24px -14px rgba(40,26,60,.28);
+  --display:"Montserrat",system-ui,sans-serif;--body:"Source Sans 3",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#15111C;--surface:#1E1827;--surface-2:#271F33;--line:#332A42;--line-strong:#463A5A;
+  --text:#EDE8F3;--text-dim:#A79CB5;--text-faint:#847A92;--accent:#B9A3DC;--on-accent:#1A1422;
+  --ok:#6FD5AC;--warn:#F0BC66;--stop:#F0938B;--ok-bg:#16332A;--warn-bg:#352B17;--stop-bg:#37201E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -16px rgba(0,0,0,.7);
+}}
+:root[data-theme="dark"]{
+  --ground:#15111C;--surface:#1E1827;--surface-2:#271F33;--line:#332A42;--line-strong:#463A5A;
+  --text:#EDE8F3;--text-dim:#A79CB5;--text-faint:#847A92;--accent:#B9A3DC;--on-accent:#1A1422;
+  --ok:#6FD5AC;--warn:#F0BC66;--stop:#F0938B;--ok-bg:#16332A;--warn-bg:#352B17;--stop-bg:#37201E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -16px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--text);font-family:var(--body);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+p{margin:0 0 .85em}p:last-child{margin-bottom:0}
+a{color:var(--accent)}
+.mast{background:var(--violet-deep);color:#fff}
+.mast-in{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:22px 24px;display:flex;flex-wrap:wrap;gap:14px 26px;align-items:flex-end;justify-content:space-between}
+.mast h1{font-size:25px;font-weight:800;color:#fff;letter-spacing:-.012em}
+.mast p{color:#CFC0E2;font-size:14.5px;margin:5px 0 0;max-width:54ch}
+.mast .badge{font-family:var(--mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:#1A1422;background:var(--gold);padding:5px 11px;border-radius:999px;white-space:nowrap}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:26px 90px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:840px){.cols{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow);overflow:hidden}
+.card>h2{font-size:15px;font-weight:700;padding:13px 17px;border-bottom:1px solid var(--line);background:var(--surface-2);display:flex;gap:9px;align-items:baseline}
+.card>h2 .n{font-family:var(--mono);font-size:11px;color:var(--gold);font-weight:600}
+.card .bd{padding:17px}
+.card+.card{margin-top:18px}
+label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);margin:0 0 5px}
+input[type=text],input[type=url],textarea,select{width:100%;font-family:var(--body);font-size:15px;color:var(--text);background:var(--ground);border:1px solid var(--line-strong);border-radius:4px;padding:9px 11px}
+textarea{resize:vertical;min-height:74px;line-height:1.5}
+input:focus-visible,textarea:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.f{margin-bottom:14px}.f:last-child{margin-bottom:0}
+.f .hint{font-size:13px;color:var(--text-faint);margin-top:5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.two{grid-template-columns:1fr}}
+button{font-family:var(--display);font-weight:700;cursor:pointer;border:0;border-radius:999px;font-size:14px}
+.btn-gold{background:var(--gold);color:var(--ink);padding:12px 26px}
+.btn-gold[disabled]{opacity:.5;cursor:not-allowed}
+.btn-quiet{background:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);padding:8px 16px;font-size:13px;font-weight:600}
+.seg{display:flex;gap:0;border:1px solid var(--line-strong);border-radius:5px;overflow:hidden;margin-bottom:14px}
+.seg button{flex:1;border-radius:0;background:var(--surface);color:var(--text-dim);padding:9px 8px;font-size:13px;font-weight:600;border-right:1px solid var(--line-strong)}
+.seg button:last-child{border-right:0}
+.seg button[aria-selected=true]{background:var(--violet-deep);color:#fff}
+.results{display:grid;gap:9px;margin-top:12px;max-height:290px;overflow-y:auto}
+.prod{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;text-align:left;background:var(--ground);border:1px solid var(--line);border-radius:5px;padding:10px 12px;width:100%;font-family:var(--body);font-size:14px;font-weight:400;color:var(--text)}
+.prod[aria-pressed=true]{border-color:var(--gold);background:var(--warn-bg)}
+.prod b{font-family:var(--display);font-size:13.5px;display:block}
+.prod .m{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);margin-top:2px}
+.stk{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;padding:3px 8px;border-radius:3px;white-space:nowrap}
+.stk.in{background:var(--ok-bg);color:var(--ok)}
+.stk.out{background:var(--stop-bg);color:var(--stop)}
+.pp{display:grid;gap:8px}
+.draftbox{background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:12px 13px;margin-bottom:16px}
+.note{font-size:13.5px;color:var(--text-dim);background:var(--surface-2);border-left:3px solid var(--violet);padding:10px 13px;border-radius:0 4px 4px 0}
+.note b{color:var(--text)}
+.status{font-family:var(--mono);font-size:12.5px;line-height:1.75;background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:12px 14px;max-height:230px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.status .s-ok{color:var(--ok)}.status .s-err{color:var(--stop)}.status .s-run{color:var(--text-dim)}
+.out{display:grid;gap:13px;margin-top:15px}
+.outcard{border:1px solid var(--line);border-radius:5px;background:var(--ground);padding:13px 15px;display:grid;gap:5px}
+.outcard b{font-family:var(--display);font-size:14.5px}
+.outcard .dim{font-family:var(--mono);font-size:11.5px;color:var(--text-faint)}
+.outcard a{font-size:14px;font-weight:600;word-break:break-all}
+.outcard img{border-radius:4px;border:1px solid var(--line);margin-top:4px}
+.err{border-left:3px solid var(--stop);background:var(--stop-bg);color:var(--text);padding:11px 14px;border-radius:0 4px 4px 0;font-size:14px;margin-top:12px}
+.err b{display:block;font-family:var(--display);margin-bottom:3px}
+.gate{border-left:3px solid var(--warn);background:var(--warn-bg);color:var(--text);padding:13px 16px;border-radius:0 4px 4px 0;font-size:14.5px;margin-bottom:18px}
+.gate b{display:block;font-family:var(--display);font-size:15.5px;margin-bottom:5px}
+.gate p{margin:0 0 9px;line-height:1.6}
+.gate p:last-child{margin-bottom:0}
+.gate ol{margin:0 0 10px;padding-left:20px;line-height:1.6}
+.gate ol li{margin-bottom:4px}
+.gate.ok{border-left-color:var(--violet);background:var(--surface-2)}
+#packtext{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;white-space:pre;margin-top:12px}
+.drivechk{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);padding:14px 16px;margin:0 0 20px;font-family:var(--body);font-size:14.5px;line-height:1.55;letter-spacing:0;text-transform:none;color:var(--text-dim);cursor:pointer}
+.drivechk b{color:var(--text);font-weight:600}
+.drivechk input{flex:none;width:19px;height:19px;margin:2px 0 0;accent-color:var(--violet-deep);cursor:pointer}
+.bhint{font-size:15px;line-height:1.6;color:var(--text);margin:12px 0 0}
+.bsep{margin-top:22px}
+.rowbtn{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:11px}
+ul.chk{list-style:none;padding:0;margin:0;display:grid;gap:11px}
+ul.chk li{display:grid;grid-template-columns:10px minmax(0,1fr);gap:10px;align-items:start}
+ul.chk li::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--gold);margin-top:8px}
+ul.chk p{margin:0;font-size:14.5px;line-height:1.6;color:var(--text-dim)}
+ul.chk b{color:var(--text);font-family:var(--display);font-weight:700}
+ol.howto{margin:0;padding:0;list-style:none;counter-reset:h;display:grid;gap:15px}
+ol.howto li{counter-increment:h;display:grid;grid-template-columns:22px minmax(0,1fr);gap:12px;align-items:start}
+ol.howto li::before{content:counter(h);font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);background:var(--gold);width:21px;height:21px;border-radius:50%;display:grid;place-items:center;margin-top:3px}
+ol.howto p{margin:0;font-size:14.5px;line-height:1.62;color:var(--text-dim)}
+ol.howto b{color:var(--text);font-family:var(--display);font-weight:700}
+.foot{margin-top:30px;font-size:13px;color:var(--text-faint);max-width:70ch}
+.lim{display:block;font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin-top:3px;min-height:14px}
+.lim.over{color:var(--stop);font-weight:600}
+#cost{font-size:13.5px;color:var(--text-dim);margin-top:8px}
+#cost.low{color:var(--stop);font-weight:600}
+.qa{font-size:13.5px;line-height:1.5;color:var(--text-dim);background:var(--surface-2);border-left:3px solid var(--line-strong);padding:8px 11px;border-radius:0 4px 4px 0;margin-top:4px}
+.qa.pass{border-left-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.qa.fail{border-left-color:var(--stop);color:var(--text);background:var(--stop-bg)}
+.qa.fail b{display:block;font-family:var(--display);margin-bottom:2px}
+.qa ul{margin:4px 0 0;padding-left:18px}
+.linkbtn{background:none;border:0;padding:0;color:var(--accent);font-family:var(--body);font-size:13.5px;font-weight:600;text-decoration:underline;cursor:pointer;border-radius:0}
+.tblwrap{overflow-x:auto}
+table.runs{border-collapse:collapse;width:100%;font-size:12.5px;min-width:560px}
+table.runs th,table.runs td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.runs th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);font-weight:600}
+.chip{font-family:var(--mono);font-size:10.5px;padding:2px 6px;border-radius:3px;white-space:nowrap;display:inline-block}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}.chip.warn{background:var(--warn-bg);color:var(--warn)}.chip.bad{background:var(--stop-bg);color:var(--stop)}
+.kitcard{margin-top:22px}
+.kitcard details summary{cursor:pointer;font-family:var(--display);font-weight:700;font-size:14px;margin-top:12px;color:var(--text)}
+.kitcard .kit{margin-top:14px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<header class="mast"><div class="mast-in">
+  <div>
+    <h1>HitLights Ad Builder</h1>
+    <p>Pick a product, write the message, get the three ad sizes — generated as one image, to the Andromeda spec.</p>
+  </div>
+  <span class="badge">1080×1080 · 1080×1920 · 1200×628</span>
+</div></header>
+
+<div class="wrap">
+  <div id="gate" class="gate" hidden></div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2><span class="n">01</span> Product image</h2>
+        <div class="bd">
+          <div class="seg" role="tablist">
+            <button id="tab-shop" role="tab" aria-selected="true">Search the catalog</button>
+            <button id="tab-url" role="tab" aria-selected="false">Paste an image URL</button>
+          </div>
+
+          <div id="pane-shop">
+            <div class="f">
+              <label for="q">Product name or SKU</label>
+              <div style="display:flex;gap:8px">
+                <input type="text" id="q" placeholder="EZDim Pro" autocomplete="off">
+                <button class="btn-quiet" id="search" style="white-space:nowrap">Search</button>
+              </div>
+              <p class="hint">Reads your Shopify catalog and uses the product's featured image.</p>
+            </div>
+            <div class="results" id="results"></div>
+          </div>
+
+          <div id="pane-url" hidden>
+            <div class="f">
+              <label for="imgurl">Public image URL</label>
+              <input type="url" id="imgurl" placeholder="https://cdn.shopify.com/…/product.jpg" autocomplete="off">
+              <p class="hint">Must be reachable on the open web — a Shopify CDN link, or any hosted image. Files on your computer can't be sent from this page; see the note at the bottom.</p>
+            </div>
+            <div class="f">
+              <label for="imgname">Product name — used for the Drive folder</label>
+              <input type="text" id="imgname" placeholder="EZDim Pro 24V 100W" autocomplete="off">
+            </div>
+          </div>
+
+          <p class="note" id="picked" style="margin-top:13px" hidden></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="n">02</span> Message</h2>
+        <div class="bd">
+          <div class="f">
+            <label for="ground">Ad template — from the HitLights Ad Templates</label>
+            <select id="ground">
+              <optgroup label="Pillar A · Pro-Trust">
+                <option value="t1">Template 1 — Collage Hero · deep violet, pro/installer</option>
+                <option value="t2">Template 2 — Speech-Bubble Hero · job-site photo, B2B/contractor</option>
+                <option value="t5">Template 5 — Glow Room Hero · dark LED-lit interior, pro brand</option>
+              </optgroup>
+              <optgroup label="Pillar B · Promo Urgency">
+                <option value="t3">Template 3 — Discount Deadline · sales, retargeting, deadlines</option>
+              </optgroup>
+              <optgroup label="Pillar C · Aesthetic Lifestyle">
+                <option value="t4">Template 4 — Styled Room Hero · warm cream, homeowners</option>
+              </optgroup>
+            </select>
+            <p class="hint" id="tplnote"></p>
+            <p class="hint" style="margin-top:2px">Fields show the template's sample copy until you edit them — replace it with real, documented claims before generating.</p>
+          </div>
+          <div class="f draftbox" id="draftbox" hidden>
+            <label for="angle">Have Claude draft it — what's the angle?</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input type="text" id="angle" placeholder="for electricians · for a bedroom glow-up · lead on the warranty" style="flex:1 1 240px">
+              <button class="btn-quiet" id="draft" style="white-space:nowrap">Write it for me</button>
+            </div>
+            <p class="hint" id="drafthint">Reads the product's own listing and fills everything below. Leave the angle blank and it picks one.</p>
+          </div>
+          <div class="two">
+            <div class="f"><label for="h1">Headline line 1 — gold</label><input type="text" id="h1" value="DRIVER + DIMMER."></div>
+            <div class="f"><label for="h2">Headline line 2 — white</label><input type="text" id="h2" value="ONE GANG BOX."></div>
+          </div>
+          <div class="f" id="deadlineWrap" hidden>
+            <label for="deadline">Deadline line — white</label>
+            <input type="text" id="deadline" placeholder="Save 11% Before Sept 30" autocomplete="off">
+            <p class="hint">Use only a real, approved offer and end date. Claude's drafting never writes the offer or the deadline.</p>
+          </div>
+          <div class="f" id="subWrap" hidden>
+            <label for="sub">Subheadline — white, regular weight</label>
+            <input type="text" id="sub" placeholder="Premium LED strips built for consistent performance" autocomplete="off">
+            <p class="hint">One benefit sentence, 5 to 8 words. It wraps onto two lines under the headline.</p>
+          </div>
+          <div class="f" id="proofWrap">
+            <label>Proof points — keep them specific</label>
+            <div class="pp">
+              <input type="text" id="p1" value="UL Listed &amp; Class 2">
+              <input type="text" id="p2" value="100% to 0.3% dimming">
+              <input type="text" id="p3" value="6-year warranty">
+            </div>
+            <p class="hint">Real figures beat adjectives. “60,000+ hours” lands; “premium quality” doesn't.</p>
+          </div>
+          <div class="two">
+            <div class="f"><label for="cta">CTA pill — 2 to 4 words</label><input type="text" id="cta" value="SHOP EZDIM PRO"></div>
+          </div>
+          <div class="two" id="contactWrap">
+            <div class="f"><label for="phone">Support phone</label><input type="text" id="phone" value="+1 855 768 4135" autocomplete="off"></div>
+            <div class="f"><label for="email">Support email</label><input type="text" id="email" value="customerservice@hitlights.com" autocomplete="off"></div>
+          </div>
+          <p class="hint" id="contactHint" style="margin:-6px 0 14px">Shown as the ad's contact line. Clear either one to leave it out.</p>
+          <div class="f">
+            <label for="scene">The shot — what's happening in the photo</label>
+            <textarea id="scene">A licensed electrician's gloved hands seating the product into a single steel gang box in an open drywall wall, neat copper conductors visible, deep violet shadow behind.</textarea>
+            <p class="hint">Describe a real scene. The product itself is carried over from the image above.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="n">03</span> Build</h2>
+        <div class="bd">
+          <label class="drivechk" for="saveDrive">
+            <input type="checkbox" id="saveDrive" checked>
+            <span><b>Also</b> save to Google Drive — a new dated folder in <b>Claude + Higgsfield Ad Creatives</b>. Either way the three finished files, cropped to exact size with the real HitLights logo, appear under Output with download buttons.</span>
+          </label>
+          <button class="btn-gold" id="go">Generate the three sizes</button>
+          <p id="cost"></p>
+          <p class="bhint">Square renders first, then portrait and landscape are built <em>from it</em> — that's what keeps all three the same image. Each finished file is then checked: logo on the grid, brand colour, and Claude reads every line of text. Takes a few minutes.</p>
+          <div class="bsep">
+            <button class="btn-quiet" id="packbtn" type="button">Build the prompt pack instead</button>
+            <p class="bhint" id="packhint">No connectors needed — gives you the exact prompts to run elsewhere.</p>
+          </div>
+          <div id="pack" hidden>
+            <textarea id="packtext" readonly aria-label="Prompt pack"></textarea>
+            <div class="rowbtn">
+              <button class="btn-quiet" id="packcopy" type="button">Copy to clipboard</button>
+              <span class="hint" id="packcopied"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2><span class="n">04</span> Output</h2>
+        <div class="bd">
+          <div class="status" id="log">Waiting for a product and a message.</div>
+          <div class="out" id="out"></div>
+          <div class="out" id="drive"></div>
+        </div>
+      </div>
+
+      <div class="card" id="runsCard" hidden>
+        <h2>Recent sets</h2>
+        <div class="bd"><div id="runs"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>How to use this</h2>
+        <div class="bd">
+          <ol class="howto">
+            <li><p><b>Pick the product.</b> Search the catalogue by name or SKU and click the result you want. The tool pulls that product's own photograph from Shopify, so the hardware in the finished ad is the real thing rather than an approximation. If the product has no image on file, or it isn't in Shopify at all, switch to the URL tab and paste a direct link to a hosted image instead.</p></li>
+            <li><p><b>Check the stock chip before you go further.</b> Every search result shows its current inventory. A red chip means zero units on hand — building the creative is still fine, but don't put budget behind it until it restocks, because an ad pointing at an unbuyable product spends its whole budget for nothing.</p></li>
+            <li><p><b>Write the message, or have it written for you.</b> You can fill in the two headline lines, the proof points, the CTA wording, and the support phone and email yourself. Or type the angle you're after — who it's for, what it should emphasise — and press <em>Write it for me</em>; Claude reads the product's own listing and drafts all of it, which you're then free to edit. Either way, proof points must carry real figures from the product sheet. If a number isn't documented, leave it out rather than guessing at it.</p></li>
+            <li><p><b>Describe the shot.</b> Say plainly what is physically happening in the photograph — who is in frame, what they're doing, where it takes place. One concrete sentence gets you further than three vague ones, and the product itself carries over from the image you picked, so there's no need to describe it.</p></li>
+            <li><p><b>Choose the template first.</b> It sets which fields apply. <em>Template 1, Collage Hero</em> is always-on brand for pros and installers. <em>Template 2, Speech-Bubble Hero</em> is for B2B and contractor prospecting, with the phone and email footer. <em>Template 3, Discount Deadline</em> is for sales, retargeting and seasonal deadlines; it swaps proof points for an offer and a deadline line, which you write yourself. <em>Template 4, Styled Room Hero</em> is the lifestyle look for homeowners, and it deliberately rules out job sites, tool belts and work gloves. <em>Template 5, Glow Room Hero</em> is the “Built For Professionals” look: a dark interior lit by LED strips, big white headline and subheadline, and the glowing product in the foreground.</p></li>
+            <li><p><b>Generate, and give it a few minutes.</b> The square renders first, then the portrait and landscape versions are built from that square rather than from scratch. That's what keeps all three genuinely the same image instead of three separate designs. Leave the tab open while it works.</p></li>
+            <li><p><b>Read the checks on each file.</b> Every finished file shows where the logo landed and a <em>Text &amp; logo check</em>: Claude reads the image and compares every line against what you typed, looks for stray words or a second logo, and checks nothing touches the real logo. A red note means don't use that file yet — press <em>Regenerate this size</em> on it (2 credits, rebuilt from the same square) or <em>Regenerate the whole set</em> on the square.</p></li>
+            <li><p><b>Take the finished files.</b> After the renders come back, the tool crops each one to exactly 1080×1080, 1080×1920 and 1200×628 and places the real HitLights logo on it at the fixed Logo Grid position for that template and size \u2014 the same spot every time, never moved to find space. If something is wrong under the logo, that file gets a red note instead. The three finished images appear under Output with a download button each, and — if the box in step 03 is ticked — in a new Drive folder named <em>date + product name</em> inside <em>Claude + Higgsfield Ad Creatives</em>. The <em>raw render</em> links are the generator's own output, before cropping and the logo.</p></li>
+            <li><p><b>If something's off, change one thing and run it again.</b> Adjust the scene, or a single headline line, rather than rewriting everything at once — it's far easier to tell what actually moved the result.</p></li>
+          </ol>
+          <p class="note" style="margin-top:14px"><b>Before your first run:</b> generating happens on <em>your own</em> Claude account, so you need the Higgsfield connector added under Settings → Connectors, with credit on that Higgsfield account — a Claude subscription alone does not cover the rendering. A set costs 6 credits; the balance shows under Generate. The text &amp; logo check uses your Claude usage and asks permission the first time. Shopify is optional and only powers the catalog search. Google Drive is what saves the finished sizes into the shared <em>Claude + Higgsfield Ad Creatives</em> folder; without it the renders still appear here. If Higgsfield or Shopify is missing, a banner at the top of this page says which one and how to add it.</p>
+          <p class="note" style="margin-top:9px"><b>No Higgsfield? Use the prompt pack.</b> <em>Build the prompt pack instead</em> under step 03 turns whatever you have written into the three exact, brand-locked prompts, in the right order, with the settings each one needs. Paste that into a Claude chat that does have Higgsfield, or send it to someone who does, and the result is identical to pressing Generate here.</p>
+          <p class="note" style="margin-top:9px"><b>The brand system is already applied.</b> Colours, Montserrat, the gold pill, the layout order and the photography rules are built into what this tool sends — you don't need to describe any of it. The fields above are only the parts that change per ad. All five HitLights Ad Templates are built in, each with its own palette, layout and button style.</p>
+          <p class="note" style="margin-top:9px"><b>Reels aren't built here.</b> The video ad is a separate deliverable — 1080×1920, 5–10 seconds, CTA or contact at the end. Ask Claude in chat for that one.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Before you hand it over</h2>
+        <div class="bd">
+          <ul class="chk">
+            <li><p><b>Every check green.</b> Text &amp; logo check passed on all three, no red notes. Recent sets keeps the record.</p></li>
+            <li><p><b>Three files, one image.</b> Open all three side by side — the same photograph, the same wording and the same colours should appear in each.</p></li>
+            <li><p><b>Proof points specific.</b> Every figure traced to the product sheet, never estimated to fill a line.</p></li>
+            <li><p><b>Landing page in stock.</b> Check the SKU in Shopify first; an ad pointing at zero inventory spends its whole budget for nothing.</p></li>
+            <li><p><b>Reel handled separately.</b> 1080×1920, 5–10 seconds, CTA or contact at the end, and nothing burned into the top or bottom 250 pixels.</p></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card kitcard">
+    <h2><span class="n">05</span> Brand kit — Logo Grid &amp; templates</h2>
+    <div class="bd">
+      <p class="note">This is the one source of truth. Every logo placement above comes from this table, and the download is the vault's <b>HitLights Ad Templates.html</b> — replace the copy in 20_Areas/Marketing whenever it changes.</p>
+      <div class="rowbtn"><button class="btn-quiet" id="kitdl" type="button">Download the brand-kit reference (.html)</button><span class="hint" id="kitnote"></span></div>
+      <details><summary>Show the Logo Grid and all five templates at the three sizes</summary><div id="kit" class="kit"></div></details>
+    </div>
+  </div>
+
+  <p class="foot"><b>Uploading a file from your computer:</b> a published page can't pass local files to the image generator — the browser sandbox blocks it. Put the image somewhere with a public link first (a Shopify product image is easiest), or ask Claude in chat and attach it there.</p>
+</div>
+

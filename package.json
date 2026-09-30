@@ -1,0 +1,13 @@
+{
+  "name": "hitlights-ad-builder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HitLights Ad Builder: standalone app. One product image + short copy -> a brand-locked Meta ad at 1080x1080, 1080x1920 and 1200x628.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "npm run test:js && npm run test:py",
+    "test:js": "node --test tests/*.test.mjs",
+    "test:py": "python3 -m pytest -q tests"
+  }
+}

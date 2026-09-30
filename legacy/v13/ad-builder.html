@@ -1,0 +1,1157 @@
+<title>HitLights Ad Builder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --violet-deep:#523875;--violet:#675185;--gold:#EBA800;--gold-bright:#FBCA10;--ink:#232323;
+  --ground:#F6F4F9;--surface:#FFFFFF;--surface-2:#F0ECF5;--line:#E1DAEC;--line-strong:#CFC4DE;
+  --text:#241E2E;--text-dim:#645A72;--text-faint:#8C8299;
+  --accent:#523875;--on-accent:#fff;
+  --ok:#1E7A5A;--warn:#9A5B00;--stop:#A3322B;
+  --ok-bg:#E3F3EC;--warn-bg:#FBF0DC;--stop-bg:#F9E7E5;
+  --shadow:0 1px 2px rgba(40,26,60,.06),0 8px 24px -14px rgba(40,26,60,.28);
+  --display:"Montserrat",system-ui,sans-serif;--body:"Source Sans 3",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#15111C;--surface:#1E1827;--surface-2:#271F33;--line:#332A42;--line-strong:#463A5A;
+  --text:#EDE8F3;--text-dim:#A79CB5;--text-faint:#847A92;--accent:#B9A3DC;--on-accent:#1A1422;
+  --ok:#6FD5AC;--warn:#F0BC66;--stop:#F0938B;--ok-bg:#16332A;--warn-bg:#352B17;--stop-bg:#37201E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -16px rgba(0,0,0,.7);
+}}
+:root[data-theme="dark"]{
+  --ground:#15111C;--surface:#1E1827;--surface-2:#271F33;--line:#332A42;--line-strong:#463A5A;
+  --text:#EDE8F3;--text-dim:#A79CB5;--text-faint:#847A92;--accent:#B9A3DC;--on-accent:#1A1422;
+  --ok:#6FD5AC;--warn:#F0BC66;--stop:#F0938B;--ok-bg:#16332A;--warn-bg:#352B17;--stop-bg:#37201E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -16px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--text);font-family:var(--body);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+p{margin:0 0 .85em}p:last-child{margin-bottom:0}
+a{color:var(--accent)}
+.mast{background:var(--violet-deep);color:#fff}
+.mast-in{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:22px 24px;display:flex;flex-wrap:wrap;gap:14px 26px;align-items:flex-end;justify-content:space-between}
+.mast h1{font-size:25px;font-weight:800;color:#fff;letter-spacing:-.012em}
+.mast p{color:#CFC0E2;font-size:14.5px;margin:5px 0 0;max-width:54ch}
+.mast .badge{font-family:var(--mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:#1A1422;background:var(--gold);padding:5px 11px;border-radius:999px;white-space:nowrap}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:26px 90px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:840px){.cols{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:var(--shadow);overflow:hidden}
+.card>h2{font-size:15px;font-weight:700;padding:13px 17px;border-bottom:1px solid var(--line);background:var(--surface-2);display:flex;gap:9px;align-items:baseline}
+.card>h2 .n{font-family:var(--mono);font-size:11px;color:var(--gold);font-weight:600}
+.card .bd{padding:17px}
+.card+.card{margin-top:18px}
+label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);margin:0 0 5px}
+optgroup{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);font-style:normal}
+optgroup option{font-family:var(--body);font-size:15px;letter-spacing:normal;text-transform:none;color:var(--text)}
+input[type=text],input[type=url],textarea,select{width:100%;font-family:var(--body);font-size:15px;color:var(--text);background:var(--ground);border:1px solid var(--line-strong);border-radius:4px;padding:9px 11px}
+textarea{resize:vertical;min-height:74px;line-height:1.5}
+input:focus-visible,textarea:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.f{margin-bottom:14px}.f:last-child{margin-bottom:0}
+.f .hint{font-size:13px;color:var(--text-faint);margin-top:5px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.two{grid-template-columns:1fr}}
+button{font-family:var(--display);font-weight:700;cursor:pointer;border:0;border-radius:999px;font-size:14px}
+.btn-gold{background:var(--gold);color:var(--ink);padding:12px 26px}
+.btn-gold[disabled]{opacity:.5;cursor:not-allowed}
+.btn-quiet{background:var(--surface-2);color:var(--text);border:1px solid var(--line-strong);padding:8px 16px;font-size:13px;font-weight:600}
+.seg{display:flex;gap:0;border:1px solid var(--line-strong);border-radius:5px;overflow:hidden;margin-bottom:14px}
+.seg button{flex:1;border-radius:0;background:var(--surface);color:var(--text-dim);padding:9px 8px;font-size:13px;font-weight:600;border-right:1px solid var(--line-strong)}
+.seg button:last-child{border-right:0}
+.seg button[aria-selected=true]{background:var(--violet-deep);color:#fff}
+.results{display:grid;gap:9px;margin-top:12px;max-height:290px;overflow-y:auto}
+.prod{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;text-align:left;background:var(--ground);border:1px solid var(--line);border-radius:5px;padding:10px 12px;width:100%;font-family:var(--body);font-size:14px;font-weight:400;color:var(--text)}
+.prod[aria-pressed=true]{border-color:var(--gold);background:var(--warn-bg)}
+.prod b{font-family:var(--display);font-size:13.5px;display:block}
+.prod .m{font-family:var(--mono);font-size:11.5px;color:var(--text-faint);margin-top:2px}
+.stk{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;padding:3px 8px;border-radius:3px;white-space:nowrap}
+.stk.in{background:var(--ok-bg);color:var(--ok)}
+.stk.out{background:var(--stop-bg);color:var(--stop)}
+.pp{display:grid;gap:8px}
+.draftbox{background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:12px 13px;margin-bottom:16px}
+.note{font-size:13.5px;color:var(--text-dim);background:var(--surface-2);border-left:3px solid var(--violet);padding:10px 13px;border-radius:0 4px 4px 0}
+.note b{color:var(--text)}
+.status{font-family:var(--mono);font-size:12.5px;line-height:1.75;background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:12px 14px;max-height:230px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.status .s-ok{color:var(--ok)}.status .s-err{color:var(--stop)}.status .s-run{color:var(--text-dim)}
+.out{display:grid;gap:13px;margin-top:15px}
+.outcard{border:1px solid var(--line);border-radius:5px;background:var(--ground);padding:13px 15px;display:grid;gap:5px}
+.outcard b{font-family:var(--display);font-size:14.5px}
+.outcard .dim{font-family:var(--mono);font-size:11.5px;color:var(--text-faint)}
+.outcard a{font-size:14px;font-weight:600;word-break:break-all}
+.outcard img{border-radius:4px;border:1px solid var(--line);margin-top:4px}
+.err{border-left:3px solid var(--stop);background:var(--stop-bg);color:var(--text);padding:11px 14px;border-radius:0 4px 4px 0;font-size:14px;margin-top:12px}
+.err b{display:block;font-family:var(--display);margin-bottom:3px}
+.gate{border-left:3px solid var(--warn);background:var(--warn-bg);color:var(--text);padding:13px 16px;border-radius:0 4px 4px 0;font-size:14.5px;margin-bottom:18px}
+.gate b{display:block;font-family:var(--display);font-size:15.5px;margin-bottom:5px}
+.gate p{margin:0 0 9px;line-height:1.6}
+.gate p:last-child{margin-bottom:0}
+.gate ol{margin:0 0 10px;padding-left:20px;line-height:1.6}
+.gate ol li{margin-bottom:4px}
+.gate.ok{border-left-color:var(--violet);background:var(--surface-2)}
+#packtext{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;white-space:pre;margin-top:12px}
+.rowbtn{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.drv{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:start;font-family:var(--body);font-size:13.5px;letter-spacing:normal;text-transform:none;line-height:1.55;color:var(--text-dim);background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:11px 13px;margin:0 0 14px;cursor:pointer}
+.drv input{width:16px;height:16px;margin:2px 0 0;accent-color:var(--violet-deep);cursor:pointer}
+.drv b{color:var(--text)}
+.drv.off{opacity:.55}
+.outcard.drive{border-color:var(--gold)}
+.dlrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+ul.chk{list-style:none;padding:0;margin:0;display:grid;gap:11px}
+ul.chk li{display:grid;grid-template-columns:10px minmax(0,1fr);gap:10px;align-items:start}
+ul.chk li::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--gold);margin-top:8px}
+ul.chk p{margin:0;font-size:14.5px;line-height:1.6;color:var(--text-dim)}
+ul.chk b{color:var(--text);font-family:var(--display);font-weight:700}
+ol.howto{margin:0;padding:0;list-style:none;counter-reset:h;display:grid;gap:15px}
+ol.howto li{counter-increment:h;display:grid;grid-template-columns:22px minmax(0,1fr);gap:12px;align-items:start}
+ol.howto li::before{content:counter(h);font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);background:var(--gold);width:21px;height:21px;border-radius:50%;display:grid;place-items:center;margin-top:3px}
+ol.howto p{margin:0;font-size:14.5px;line-height:1.62;color:var(--text-dim)}
+ol.howto b{color:var(--text);font-family:var(--display);font-weight:700}
+.foot{margin-top:30px;font-size:13px;color:var(--text-faint);max-width:70ch}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<header class="mast"><div class="mast-in">
+  <div>
+    <h1>HitLights Ad Builder</h1>
+    <p>Pick a product, write the message, get the three ad sizes — generated as one image, to the Andromeda spec.</p>
+  </div>
+  <span class="badge">1080×1080 · 1080×1920 · 1200×628</span>
+</div></header>
+
+<div class="wrap">
+  <div id="gate" class="gate" hidden></div>
+
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2><span class="n">01</span> Product image</h2>
+        <div class="bd">
+          <div class="seg" role="tablist">
+            <button id="tab-shop" role="tab" aria-selected="true">Search the catalog</button>
+            <button id="tab-url" role="tab" aria-selected="false">Paste an image URL</button>
+          </div>
+
+          <div id="pane-shop">
+            <div class="f">
+              <label for="q">Product name or SKU</label>
+              <div style="display:flex;gap:8px">
+                <input type="text" id="q" placeholder="EZDim Pro" autocomplete="off">
+                <button class="btn-quiet" id="search" style="white-space:nowrap">Search</button>
+              </div>
+              <p class="hint">Reads your Shopify catalog and uses the product's featured image.</p>
+            </div>
+            <div class="results" id="results"></div>
+          </div>
+
+          <div id="pane-url" hidden>
+            <div class="f">
+              <label for="imgurl">Public image URL</label>
+              <input type="url" id="imgurl" placeholder="https://cdn.shopify.com/…/product.jpg" autocomplete="off">
+              <p class="hint">Must be reachable on the open web — a Shopify CDN link, or any hosted image. Files on your computer can't be sent from this page; see the note at the bottom.</p>
+            </div>
+          </div>
+
+          <p class="note" id="picked" style="margin-top:13px" hidden></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="n">02</span> Message</h2>
+        <div class="bd">
+          <div class="f">
+            <label for="ground">Template</label>
+            <select id="ground">
+              <optgroup label="Pillar A · Pro-Trust">
+                <option value="collage">Template 1 — Collage Hero · deep violet, pro/installer</option>
+                <option value="bubble">Template 2 — Speech-Bubble Hero · job-site photo, B2B/contractor</option>
+                <option value="spotlight">Template 5 — Glow Room Hero · dark LED-lit interior, pro brand</option>
+              </optgroup>
+              <optgroup label="Pillar B · Promo Urgency">
+                <option value="promo">Template 3 — Discount Deadline · sales, retargeting, deadlines</option>
+              </optgroup>
+              <optgroup label="Pillar C · Aesthetic Lifestyle">
+                <option value="lifestyle">Template 4 — Styled Room Hero · warm cream, homeowners</option>
+              </optgroup>
+            </select>
+            <p class="hint" id="tplhint">Pro-Trust and Aesthetic Lifestyle split the frame: brand panel one side, photo the other. Spotlight is full bleed — the room fills the canvas and the product sits in front of it.</p>
+          </div>
+          <div class="f draftbox" id="draftbox" hidden>
+            <label for="angle">Have Claude draft it — what's the angle?</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input type="text" id="angle" placeholder="for electricians · for a bedroom glow-up · lead on the warranty" style="flex:1 1 240px">
+              <button class="btn-quiet" id="draft" style="white-space:nowrap">Write it for me</button>
+            </div>
+            <p class="hint" id="drafthint">Reads the product's own listing and fills everything below. Leave the angle blank and it picks one.</p>
+          </div>
+          <div class="two">
+            <div class="f"><label for="h1" id="lh1">Headline line 1 — gold</label><input type="text" id="h1" value="DRIVER + DIMMER."></div>
+            <div class="f"><label for="h2" id="lh2">Headline line 2 — white</label><input type="text" id="h2" value="ONE GANG BOX."></div>
+          </div>
+          <div class="f" id="ppwrap">
+            <label>Proof points — keep them specific</label>
+            <div class="pp">
+              <input type="text" id="p1" value="UL Listed &amp; Class 2">
+              <input type="text" id="p2" value="100% to 0.3% dimming">
+              <input type="text" id="p3" value="6-year warranty">
+            </div>
+            <p class="hint">Real figures beat adjectives. “60,000+ hours” lands; “premium quality” doesn't.</p>
+          </div>
+          <div class="f" id="dlwrap" hidden>
+            <label for="deadline">Offer deadline — the urgency line</label>
+            <input type="text" id="deadline" value="Limited Time Only">
+            <p class="hint">Sits directly above the pill. State a real deadline if there is one — a date beats a vague phrase.</p>
+          </div>
+          <div class="f" id="subwrap" hidden>
+            <label for="sub">Subheadline — one supporting sentence</label>
+            <input type="text" id="sub" value="Premium LED strips built for consistent performance">
+            <p class="hint">Spotlight carries one sentence under the headline instead of three bulleted proof points.</p>
+          </div>
+          <div class="f"><label for="cta">CTA pill — 2 to 4 words</label><input type="text" id="cta" value="SHOP EZDIM PRO"></div>
+          <div class="two">
+            <div class="f"><label for="phone">Support phone</label><input type="text" id="phone" value="+1 855 768 4135"></div>
+            <div class="f"><label for="email">Support email</label><input type="text" id="email" value="customerservice@hitlights.com"></div>
+          </div>
+          <div class="f">
+            <label for="scene">The shot — what's happening in the photo</label>
+            <textarea id="scene">A licensed electrician's gloved hands seating the product into a single steel gang box in an open drywall wall, neat copper conductors visible, deep violet shadow behind.</textarea>
+            <p class="hint">Describe a real scene. The product itself is carried over from the image above.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="n">03</span> Build</h2>
+        <div class="bd">
+          <label class="drv" for="todrive">
+            <input type="checkbox" id="todrive" checked>
+            <span>Save to Google Drive when it's done — a new dated folder in <b>Claude + Higgsfield Ad Creatives</b>. The three files are cropped to exact size and stamped with the real logo either way; this decides whether they also land in Drive.</span>
+          </label>
+          <button class="btn-gold" id="go">Generate the three sizes</button>
+          <p class="hint" style="margin-top:9px">Square renders first, then portrait and landscape are built <em>from it</em> — that's what keeps all three the same image. Takes a couple of minutes.</p>
+          <div class="rowbtn">
+            <button class="btn-quiet" id="packbtn" type="button">Build the prompt pack instead</button>
+            <span class="hint" id="packhint">No connectors needed — gives you the exact prompts to run elsewhere.</span>
+          </div>
+          <div id="pack" hidden>
+            <textarea id="packtext" readonly aria-label="Prompt pack"></textarea>
+            <div class="rowbtn">
+              <button class="btn-quiet" id="packcopy" type="button">Copy to clipboard</button>
+              <span class="hint" id="packcopied"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2><span class="n">04</span> Output</h2>
+        <div class="bd">
+          <div class="status" id="log">Waiting for a product and a message.</div>
+          <div class="out" id="out"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>How to use this</h2>
+        <div class="bd">
+          <ol class="howto">
+            <li><p><b>Pick the product.</b> Search the catalogue by name or SKU and click the result you want. The tool pulls that product's own photograph from Shopify, so the hardware in the finished ad is the real thing rather than an approximation. If the product has no image on file, or it isn't in Shopify at all, switch to the URL tab and paste a direct link to a hosted image instead.</p></li>
+            <li><p><b>Check the stock chip before you go further.</b> Every search result shows its current inventory. A red chip means zero units on hand — building the creative is still fine, but don't put budget behind it until it restocks, because an ad pointing at an unbuyable product spends its whole budget for nothing.</p></li>
+            <li><p><b>Write the message, or have it written for you.</b> You can fill in the two headline lines, the proof points (or, on Spotlight, the one supporting sentence), the CTA wording and the support phone and email yourself. Or type the angle you're after — who it's for, what it should emphasise — and press <em>Write it for me</em>; Claude reads the product's own listing and drafts all of it, which you're then free to edit. Either way, proof points must carry real figures from the product sheet. If a number isn't documented, leave it out rather than guessing at it.</p></li>
+            <li><p><b>Describe the shot.</b> Say plainly what is physically happening in the photograph — who is in frame, what they're doing, where it takes place. One concrete sentence gets you further than three vague ones, and the product itself carries over from the image you picked, so there's no need to describe it.</p></li>
+            <li><p><b>Choose the template.</b> The five here are the five in the brand kit, grouped by the pillar each one serves. Pillar A, Pro-Trust, holds three: <em>Template 1, Collage Hero</em> is the violet-panel workhorse for installers and specifiers; <em>Template 2, Speech-Bubble Hero</em> drops the panel for a full-bleed photo with a white card over the top third, for service and reassurance angles; <em>Template 5, Glow Room Hero</em> is the pro brand look, where the LED-lit room fills the frame, the product sits in front of it, every word is white, and one supporting sentence replaces the three proof points. Pillar B, Promo Urgency, holds <em>Template 3, Discount Deadline</em> — the offer figure in gold as the biggest thing on the frame, plus a deadline line, the only template with that field. Pillar C, Aesthetic Lifestyle, holds <em>Template 4, Styled Room Hero</em>, the cream look for homeowners, which deliberately rules out job sites, tool belts and work gloves — avoiding that imagery is the entire reason it exists. Picking a template changes which fields appear, so choose it first.</p></li>
+            <li><p><b>Generate, and give it a few minutes.</b> The square renders first, then the portrait and landscape versions are built from that square rather than from scratch. That's what keeps all three genuinely the same image instead of three separate designs. Leave the tab open while it works.</p></li>
+            <li><p><b>Collect the results.</b> If the Drive box was ticked, the three files are already sitting in a new dated folder inside <em>Claude + Higgsfield Ad Creatives</em>, cropped to exactly 1080×1080, 1080×1920 and 1200×628 and named after their dimensions — use those, they are Ads Manager ready. The Higgsfield links in the Output panel are the uncropped originals, kept in case you want to re-crop differently.</p></li>
+            <li><p><b>If something's off, change one thing and run it again.</b> Adjust the scene, or a single headline line, rather than rewriting everything at once — it's far easier to tell what actually moved the result.</p></li>
+          </ol>
+          <p class="note" style="margin-top:14px"><b>Before your first run:</b> generating happens on <em>your own</em> Claude account, so you need the Higgsfield connector added under Settings → Connectors, with credit on that Higgsfield account — a Claude subscription alone does not cover the rendering. Shopify is optional and only powers the catalog search. If either is missing, a banner at the top of this page says which one and how to add it.</p>
+          <p class="note" style="margin-top:9px"><b>No Higgsfield? Use the prompt pack.</b> <em>Build the prompt pack instead</em> under step 03 turns whatever you have written into the three exact, brand-locked prompts, in the right order, with the settings each one needs. Paste that into a Claude chat that does have Higgsfield, or send it to someone who does, and the result is identical to pressing Generate here.</p>
+          <p class="note" style="margin-top:9px"><b>The brand system is already applied.</b> Colours, Montserrat, the gold pill, the layout order and the photography rules are built into what this tool sends — you don't need to describe any of it. The fields above are only the parts that change per ad.</p>
+          <p class="note" style="margin-top:9px"><b>The generator never draws the logo.</b> Every prompt reserves a corner and orders it left completely empty, with no wordmark or brand lettering anywhere on the frame. Your real logo file is then laid into that reserved space while each image is cropped to size — the white lockup on Templates 1, 3, 4 and 5, the black one inside Template 2’s white card. That means the Higgsfield links in the Output panel show the raw render with an empty corner: the <em>finished</em> files are the ones in Drive or behind the save buttons, and they are the only ones fit to publish.</p>
+          <p class="note" style="margin-top:9px"><b>Where the files land.</b> Each run makes its own folder named <em>date, then product</em> — for example <em>2026-09-16 EZDim Pro</em> — inside the shared <em>Claude + Higgsfield Ad Creatives</em> folder. Running the same product twice makes two folders rather than overwriting the first, so nothing is ever lost; tidy up the ones you don’t keep.</p>
+          <p class="note" style="margin-top:9px"><b>Reels aren't built here.</b> The video ad is a separate deliverable — 1080×1920, 5–10 seconds, CTA or contact at the end. Ask Claude in chat for that one.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Before you hand it over</h2>
+        <div class="bd">
+          <ul class="chk">
+            <li><p><b>Three files, one image.</b> Open all three side by side — the same photograph, the same wording and the same colours should appear in each.</p></li>
+            <li><p><b>Logo placed cleanly.</b> The logo itself is the real file, so its letterforms are correct by construction. What to check is the space around it: that the generator actually left that corner empty, that nothing is peeking out from behind the lockup, and that it has not drawn a second wordmark somewhere else on the frame.</p></li>
+            <li><p><b>Publishing the finished files.</b> The Drive copies and the save buttons give you 1080×1080, 1080×1920 and 1200×628 with the logo applied. The Higgsfield links are raw renders with an empty logo corner — never send those to Ads Manager.</p></li>
+            <li><p><b>Proof points specific.</b> Every figure traced to the product sheet, never estimated to fill a line.</p></li>
+            <li><p><b>Landing page in stock.</b> Check the SKU in Shopify first; an ad pointing at zero inventory spends its whole budget for nothing.</p></li>
+            <li><p><b>Reel handled separately.</b> 1080×1920, 5–10 seconds, CTA or contact at the end, and nothing burned into the top or bottom 250 pixels.</p></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot"><b>Uploading a file from your computer:</b> a published page can't pass local files to the image generator — the browser sandbox blocks it. Put the image somewhere with a public link first (a Shopify product image is easiest), or ask Claude in chat and attach it there.</p>
+</div>
+
+<script>
+(function(){
+  var HF="Higgsfield", SH="Shopify", GD="Google Drive";
+  // Shared destination: "Claude + Higgsfield Ad Creatives" (owner marketing@hitlights.com).
+  var DRIVE_PARENT="1jTlV2izOOli81J9ZC-pXN-ZpYO0Wfh4L";
+  var DRIVE_PARENT_URL="https://drive.google.com/drive/folders/1jTlV2izOOli81J9ZC-pXN-ZpYO0Wfh4L";
+  // The approved HitLights lockups, hosted so the generator can be handed the
+  // REAL artwork as a reference image. An image model asked to letter a logo
+  // from a description will invent one, every time — so we never describe it.
+  var LOGO_WHITE="https://d2ol7oe51mr4n9.cloudfront.net/user_39b7JrC2bsv1cMtGqDHJOpiQGAL/b1efe9fc-9a54-4994-bec0-2be0e275786f.png";
+  var LOGO_BLACK="https://d2ol7oe51mr4n9.cloudfront.net/user_39b7JrC2bsv1cMtGqDHJOpiQGAL/ba199b96-8523-4f0e-82fc-98408de04d34.png";
+  var LOGO_FOR={collage:"white", bubble:"black", promo:"white", lifestyle:"black", spotlight:"white"};
+  function logoUrl(t){ return LOGO_FOR[t||$("ground").value]==="black" ? LOGO_BLACK : LOGO_WHITE; }
+  // Where the logo is composited afterwards, and therefore what the prompt has
+  // to keep empty. Widths and margins are fractions of the finished frame, taken
+  // off the approved reference ads (square 25.3%/5.1%, portrait 31.1%/5.1%,
+  // landscape 17.7%/11.1%). pos is measured in the finished frame, not the render.
+  var PLACE={
+    collage:  {pos:{sq:"left",  po:"left",  la:"left"},  w:{sq:0.26,po:0.30,la:0.19}, top:{sq:0.055,po:0.050,la:0.110}, side:0.055, ground:"the deep violet brand panel"},
+    bubble:   {pos:{sq:"center",po:"center",la:"center"},w:{sq:0.28,po:0.32,la:0.20}, top:{sq:0.085,po:0.070,la:0.130}, side:0.055, ground:"the opaque white card"},
+    promo:    {pos:{sq:"left",  po:"left",  la:"left"},  w:{sq:0.26,po:0.30,la:0.19}, top:{sq:0.055,po:0.050,la:0.110}, side:0.055, ground:"the darkened photograph"},
+    lifestyle:{pos:{sq:"left",  po:"left",  la:"left"},  w:{sq:0.26,po:0.30,la:0.19}, top:{sq:0.055,po:0.050,la:0.110}, side:0.055, ground:"the cream brand panel"},
+    spotlight:{pos:{sq:"center",po:"center",la:"right"}, w:{sq:0.253,po:0.311,la:0.177},top:{sq:0.051,po:0.051,la:0.111}, side:0.051, ground:"the dark scrim over the photograph"}
+  };
+  var SZKEY={1:"sq",2:"po",3:"la"};
+  var CORNER={left:"TOP-LEFT",center:"TOP-CENTRE",right:"TOP-RIGHT"};
+  function place(tpl,szk){ var c=PLACE[tpl]||PLACE.collage; return {pos:c.pos[szk],w:c.w[szk],top:c.top[szk],side:c.side,ground:c.ground}; }
+  var mcp=null, sample=null, picked=null, busy=false;
+  var haveHF=false, haveSH=false, haveGD=false;
+  var dl=null;
+  var renders={};
+  var DASH="\u2014";
+  var $=function(id){return document.getElementById(id)};
+  var logEl=$("log"), outEl=$("out");
+
+  function log(msg, cls){
+    var s=document.createElement("span");
+    s.className=cls||"s-run"; s.textContent=msg+"\n";
+    if(logEl.dataset.fresh!=="1"){logEl.textContent="";logEl.dataset.fresh="1";}
+    logEl.appendChild(s); logEl.scrollTop=logEl.scrollHeight;
+  }
+  function fail(title, body){
+    var d=document.createElement("div"); d.className="err";
+    var b=document.createElement("b"); b.textContent=title; d.appendChild(b);
+    d.appendChild(document.createTextNode(body)); outEl.appendChild(d);
+  }
+  function explain(e){
+    var c=(e&&e.code)||"upstream_error", s=(e&&e.server)||"the connector";
+    if(c==="needs_reauth") return ["Reconnect "+s, "Its access has lapsed. Reconnect it in claude.ai → Settings → Connectors, then try again."];
+    if(c==="server_not_connected") return ["Add "+s, "This page needs the "+s+" connector. Add it in claude.ai → Settings → Connectors."];
+    if(c==="not_in_manifest") return [s+" isn't allowed here", "The connector was turned off for this page, or declined. Reload and allow it to continue."];
+    if(c==="selection_required") return ["Choose a "+s+" connection", "You have more than one. Pick one when prompted, then try again."];
+    if(c==="blocked_by_policy"||c==="approval_required") return ["Blocked by policy", "Your organisation restricts this tool on "+s+". An admin can change that."];
+    if(c==="server_unavailable") return [s+" didn't answer", "Usually temporary. Wait a moment and run it again."];
+    if(c==="rate_limited") return ["Too many requests", "Wait a short while before running it again."];
+    if(c==="tool_error") return [s+" reported a problem", (e&&e.message)||"No detail given. Check your Higgsfield credit balance and the image URL."];
+    if(c==="not_granted"||c==="capability_disabled"||c==="capability_removed") return ["Connectors unavailable here", "This view can't reach connectors. Open the page in claude.ai."];
+    if(c==="cancelled") return ["Cancelled", "The request was stopped before it finished."];
+    if(c==="consent_required") return ["Allow "+s+" for this page",
+      "This page hasn't been allowed to use "+s+" yet, so the call never reached it. Reload the page and choose Allow when Claude asks about "+s+", then press Finish these renders \u2014 you will not have to generate again."];
+    // Never collapse an unrecognised code into a shrug: print it, so the next
+    // person to see this can act on it instead of guessing.
+    return ["Couldn't reach "+s+" ("+c+")", (e&&e.message)||"No detail given."];
+  }
+
+  // ---------- tabs ----------
+  function tab(which){
+    var s=which==="shop";
+    $("tab-shop").setAttribute("aria-selected",String(s));
+    $("tab-url").setAttribute("aria-selected",String(!s));
+    $("pane-shop").hidden=!s; $("pane-url").hidden=s;
+  }
+  $("tab-shop").addEventListener("click",function(){tab("shop")});
+  $("tab-url").addEventListener("click",function(){tab("url")});
+
+  // ---------- shopify search ----------
+  function setPicked(p){
+    picked=p; var el=$("picked"); el.hidden=false;
+    el.innerHTML="";
+    var b=document.createElement("b"); b.textContent="Using: ";
+    el.appendChild(b); el.appendChild(document.createTextNode(p.label));
+    if(p.outOfStock){
+      var w=document.createElement("div");
+      w.style.marginTop="6px"; w.style.color="var(--stop)";
+      w.textContent="Zero inventory in Shopify — point the ad at an in-stock SKU before you spend on it.";
+      el.appendChild(w);
+    }
+  }
+  $("search").addEventListener("click", function(){
+    var q=$("q").value.trim(); if(!q) return;
+    var r=$("results"); r.innerHTML="";
+    if(!mcp||!haveSH){ fail("Shopify catalog search is not available","Your Claude account does not have the Shopify connector, so the catalog can't be searched from here. Use the Paste an image URL tab instead, or add Shopify in claude.ai under Settings, then Connectors."); return; }
+    log("Searching the catalog for “"+q+"”…");
+    mcp.callTool(SH,"search_products",{search_query:q,first:8},{cache:{staleTime:60000}}).then(function(res){
+      var p=res&&res.payload, edges=[];
+      try{ edges=p.data.products.edges||[]; }catch(e){ edges=[]; }
+      if(!edges.length){ log("No products matched.","s-err"); return; }
+      log("Found "+edges.length+" product"+(edges.length===1?"":"s")+".","s-ok");
+      edges.forEach(function(e){
+        var n=e.node||{}, url="";
+        try{ url=n.featuredMedia.preview.image.url; }catch(err){ url=""; }
+        var inv=typeof n.totalInventory==="number"?n.totalInventory:null;
+        var sku=""; try{ sku=n.variants.edges[0].node.sku||""; }catch(err){}
+        var btn=document.createElement("button");
+        btn.className="prod"; btn.type="button"; btn.setAttribute("aria-pressed","false");
+        if(!url) btn.disabled=true;
+        var left=document.createElement("span");
+        var t=document.createElement("b"); t.textContent=n.title||"Untitled"; left.appendChild(t);
+        var m=document.createElement("span"); m.className="m";
+        m.textContent=(sku?sku+"  ·  ":"")+(url?"image on file":"no image on file");
+        left.appendChild(m); btn.appendChild(left);
+        if(inv!==null){
+          var s=document.createElement("span");
+          s.className="stk "+(inv>0?"in":"out");
+          s.textContent=inv>0?inv+" in stock":"0 in stock";
+          btn.appendChild(s);
+        }
+        btn.addEventListener("click",function(){
+          Array.prototype.forEach.call(r.children,function(c){c.setAttribute("aria-pressed","false")});
+          btn.setAttribute("aria-pressed","true");
+          setPicked({url:url,label:n.title||"Selected product",outOfStock:inv===0,title:n.title||"",desc:n.description||""});
+        });
+        r.appendChild(btn);
+      });
+    }, function(e){ var x=explain(e); log(x[0]+" — "+x[1],"s-err"); fail(x[0],x[1]); });
+  });
+  $("imgurl").addEventListener("change",function(){
+    var v=$("imgurl").value.trim();
+    if(/^https:\/\//i.test(v)) setPicked({url:v,label:v,outOfStock:false,title:"",desc:""});
+  });
+
+  // ---------- brand kit (reference the generator always follows) ----------
+  // Source: HitLights Ad Brand Kit + Andromeda Ad Creative Spec, vault > 20_Areas/Marketing.
+  // Colours verified against hitlights.com's live theme. Do not loosen these without updating the kit.
+  var BRAND={
+    purpleDeep:"#523875", purple:"#675185", gold:"#EBA800", goldBright:"#FBCA10", ink:"#232323",
+    face:"Montserrat, a geometric sans-serif — headings heavy at 600 to 800, body regular",
+    // The purple + gold pairing is the one constant across every top-performing HitLights ad.
+    systemDark:"Palette: HitLights deep violet #523875 and #675185 as the dominant field, warm gold #EBA800 with #FBCA10 as the single high-saturation accent, ink #232323, pure white. Gold appears two ways and no others: as the loud headline and CTA colour, and as a quiet fine dot-grid texture in one corner — both reading as the warm glow of an LED. Headline line one in gold #EBA800, line two in white.",
+    systemLight:"Palette: soft warm cream and blush plaster as the ground, HitLights deep violet #523875 used only as a small accent rather than a full-bleed block, warm gold #EBA800 as the single high-saturation accent, ink #232323 for type. This is the lighter register of the same brand system, so it reads as home content in feed rather than a trade ad. Headline line one in ink #232323, line two in gold #EBA800.",
+    craftDark:"Lighting: large soft key from upper left, a warm practical LED glow as secondary source, controlled specular highlights on product surfaces. Register: contemporary premium hardware advertising — crisp macro detail, controlled reflections, deep saturated shadows, clean architectural geometry.",
+    craftLight:"Lighting: warm low-Kelvin practical LED glow as the hero light source with soft ambient fill, warmer white balance than the trade register. Register: warm, lived-in, editorial interior photography — styled but not staged.",
+    // Layout skeleton every top performer shares.
+    skeleton:"Layout skeleton, in this order: wordmark, then a two-line stacked headline mixing gold and white, then the hero visual, then the proof points, then the CTA. Rule of thirds, one dominant focal anchor, eye landing on the subject within half a second.",
+    // CTA system - solid only. No ad that has performed uses a ghost button.
+    ctaRule:"The call to action is always a solid gold #EBA800 rounded pill with dark ink #232323 text, high contrast, never an outline or ghost button, never a rectangle, and never any colour other than that gold.",
+    // Performance ads run slightly louder than organic, without tipping into cheap.
+    punch:"High saturation and strong contrast with deep shadows and bright highlights — built to fight a busy social feed — but no neon oversaturation, no HDR halos and no synthetic stock sheen.",
+    typeRule:"All lettering set in "+"Montserrat or an identical heavy geometric sans-serif, tight tracking, crisp, correctly spelled, evenly kerned, and comfortably inside the frame with clear margins at the top and bottom.",
+    trust:"Any certification or warranty mark stays small and corner-anchored — present and legible, never competing with the headline or the product.",
+    // ---- Spotlight (Template 5) ----
+    // Measured off the three approved reference ads, not eyeballed. Its amber
+    // is #FFAB00, brighter than the #EBA800 the panel templates use, and the
+    // headline is WHITE here — gold is spent only on the pill and the rule.
+    amber:"#FFAB00",
+    systemSpot:"Palette: a full-bleed photographic scene under a deep warm near-black scrim #272727, warm amber #FFAB00 as the single accent, and pure white for every word on the frame. The amber is spent in exactly two places and nowhere else: the call-to-action pill, and one short hairline rule under the headline. The headline is WHITE, never gold, and there is no flat panel, colour block, band or bar anywhere in the composition.",
+    craftSpot:"Lighting: the installed LED run is the only significant light source in the room — warm 2700K cove, under-cabinet and shelf light raking across concrete, stone and wood, everything else falling into deep warm shadow. Register: cinematic architectural photography at dusk, rich and quiet, shot from across the room rather than up close.",
+    skeletonSpot:"Layout skeleton, in this order down the frame: wordmark, then a two-line headline in title case, then a short hairline amber rule, then a two-line supporting sentence, then the amber pill, then the contact details. All of that type occupies the upper portion of the frame; the product occupies the lower portion as a foreground hero.",
+    punchSpot:"Deep contrast and a warm, restrained glow — premium and cinematic rather than loud. No neon oversaturation, no HDR halos, no flat fill light.",
+    // ---- Template 2, Speech Bubble ----
+    systemBubble:"Palette: a full-bleed aspirational photograph as the ground, with a single opaque WHITE rounded card laid over its upper portion carrying all of the type. Inside that card the type is ink #232323, and the call-to-action pill is warm gold #EBA800. HitLights deep violet #523875 appears only as a small accent inside the card \u2014 a rule, a badge or the wordmark \u2014 never as a full block. Any type outside the card is white.",
+    // ---- Template 3, Promo Urgency ----
+    systemPromo:"Palette: a full-bleed moody real-room photograph, darkened so type reads over it, with warm gold #EBA800 carrying the offer and pure white carrying everything else. Gold is reserved for the offer figure and the call-to-action pill. There is no flat violet panel in this template \u2014 the photograph is the ground.",
+    ctaSpot:"The call to action is always a solid amber #FFAB00 rounded pill with dark ink #272727 text and a small right-pointing arrow after the words, never an outline or ghost button, never a rectangle, and never any colour other than that amber."
+  };
+  // Photography direction differs by register. The lifestyle pillar exists precisely to avoid trade imagery.
+  var PHOTO_DARK="Photography: job-site and installer realism — real hands, real hardware, real rough-in conditions, upscale but neutral interiors.";
+  var PHOTO_BUBBLE="Photography: an aspirational, upscale finished space \u2014 an exterior elevation at dusk, a landscaped facade, or a large open interior \u2014 photographed wide, warm and inviting, with the LED installation clearly visible in it.";
+  var PHOTO_PROMO="Photography: a moody, ambient real room with strong directional light and deep shadow \u2014 a media wall, a gaming setup, a bar back, a stair run \u2014 the sort of space the lighting visibly transforms.";
+  var PHOTO_SPOT="Photography: an upscale contemporary interior at dusk — concrete, stone, warm timber, a kitchen or living space seen from across the room — unlit except by the LED installation itself. No people in frame.";
+  var PHOTO_LIGHT="Photography: styled, warm, lived-in domestic rooms. Absolutely no tool belts, no job site, no work gloves, no exposed construction — this register exists to avoid trade imagery entirely.";
+
+  // ---------- prompt ----------
+  function esc(s){ return String(s||"").replace(/\s+/g," ").trim(); }
+  // Five templates, numbered and named to match HitLights Ad Brand Kit >
+  // Templates, and grouped in the picker by the pillar each one serves:
+  // A Pro-Trust (1, 2, 5), B Promo Urgency (3), C Aesthetic Lifestyle (4).
+  // Each one decides three things: the ground it is built on, how the type is
+  // arranged over it, and what it is not allowed to contain.
+  var AVOID_BASE="no logo of any kind, no wordmark, no brand name, no HITLIGHTS lettering, no H monogram, no invented or approximated logo, nothing at all in the reserved logo corner, no AI artifacts, no warped or smeared text, no fake words baked into the image, no garbled letters, no melted typography, no fictional logos, no duplicated text, no plastic look, no cartoonish rendering, no extra fingers, no extra limbs, no warped fingers or hands, no melted geometry, no oversaturated HDR, no HDR halos, no flat fluorescent lighting, no generic stock photography poses, no cliche compositions, no random unrelated brand logos, no watermarks, no text near the top or bottom edge of the frame, no outline or ghost buttons";
+
+  function prompt_(kind){
+    var tpl=$("ground").value;
+    var h1=esc($("h1").value), h2=esc($("h2").value), cta=esc($("cta").value);
+    var ph=esc($("phone").value), em=esc($("email").value);
+    var contact=[ph,em].filter(Boolean).join("  |  ");
+    var ps=[esc($("p1").value),esc($("p2").value),esc($("p3").value)].filter(Boolean);
+    var sub=esc($("sub").value), deadline=esc($("deadline").value);
+    var scene=esc($("scene").value);
+    var pl=place(tpl, kind==="portrait"?"po":kind==="landscape"?"la":"sq");
+    var reserved='[LOGO \u2014 RESERVED SPACE, LEAVE IT COMPLETELY EMPTY]\nThe '+CORNER[pl.pos]+' of the frame is reserved for the brand logo, which is added afterwards and must NOT be drawn here. Keep a clear horizontal strip about '+Math.round(pl.w*100+8)+'% of the frame width and about '+Math.round((pl.top*2+0.06)*100)+'% of the frame height, anchored to that corner, entirely free of type, graphics, product and busy detail. '+pl.ground.charAt(0).toUpperCase()+pl.ground.slice(1)+' must extend cleanly behind that strip so a logo placed on it reads at a glance. Do not render the word HITLIGHTS, any wordmark, any monogram, any H mark or any other brand lettering anywhere on the frame \u2014 the entire logo is applied later from the official artwork file.';
+    var proofs=function(colour){
+      return ps.length+' short proof line'+(ps.length===1?'':'s')+', each preceded by its own small '+colour+' round bullet on the same line as its text: '+ps.map(function(x){return '"'+x+'"'}).join(", ")+'.';
+    };
+    var hl=function(){ return 'a heavy stacked two-line headline reading "'+h1+'" then "'+h2+'"'; };
+
+    var T={};
+
+    // ---------------- 1 — Pro-Trust: Collage Hero ----------------
+    T.collage={
+      sys:BRAND.systemDark+" "+BRAND.craftDark+" "+BRAND.skeleton+" "+BRAND.punch,
+      photo:PHOTO_DARK,
+      comp:"Square frame. A solid deep violet #523875 panel occupying one side and carrying all of the type, with a COLLAGE filling the other side: a staged interior photograph, a product shot and a glowing coiled-strip macro shot arranged as overlapping cards. A fine gold dot-grid texture sits quietly in one corner.",
+      typo:'[TYPOGRAPHY] Integrated typography. '+BRAND.typeRule+' '+' '+hl()+', line one in gold #EBA800 and line two in white. Beneath the headline '+proofs("gold")+' Below those '+BRAND.ctaRule+' The pill reads "'+cta+'". Beneath the pill, small text reading "'+contact+'".',
+      avoid:AVOID_BASE+", no flat solid colour bands disconnected from the scene, no colour outside the HitLights palette",
+      keep:"the same collage cards and gold dot texture, the same brand panel",
+      port:"Place the collage across the upper portion of the frame and the violet panel with all of the type across the lower portion, in this reading order \u2014 wordmark, headline, proof lines, gold pill, contact line.",
+      land:"Violet panel filling the left portion of the frame with the collage filling the right portion, in this reading order down the left \u2014 wordmark, headline, proof points, gold pill with the contact line beside it."
+    };
+
+    // ---------------- 2 — Pro-Trust: Speech Bubble ----------------
+    T.bubble={
+      sys:BRAND.systemBubble+" "+BRAND.craftDark+" "+BRAND.punch,
+      photo:PHOTO_BUBBLE,
+      comp:"Square frame, FULL BLEED photograph edge to edge with NO violet panel. A single opaque WHITE rounded card \u2014 a speech bubble with generous corner radius \u2014 overlaps the upper third of the photograph and carries all of the headline type and the call to action inside itself. The product sits as a flatlay along the bottom of the frame, outside and below the card.",
+      typo:'[TYPOGRAPHY] Integrated typography. '+BRAND.typeRule+' INSIDE the white card, in this order: '+' '+hl()+' in dark ink #232323, both lines the same colour. Beneath the headline '+proofs("gold")+' Then, still inside the card, '+BRAND.ctaRule+' The pill reads "'+cta+'". OUTSIDE the card, along the very bottom of the photograph, small white text reading "'+contact+'".',
+      avoid:AVOID_BASE+", no violet background block, no full-bleed colour panel, no second card, no transparent or tinted card \u2014 the card is opaque white, no headline text placed outside the card",
+      keep:"the same opaque white speech-bubble card with the same wording inside it, the same product flatlay",
+      port:"Keep the white card in the upper portion of the taller frame and let the photograph and the product flatlay fill the lower portion beneath it.",
+      land:"Place the white card on the left portion of the frame and let the photograph and the product flatlay fill the right portion."
+    };
+
+    // ---------------- 3 — Promo Urgency ----------------
+    T.promo={
+      sys:BRAND.systemPromo+" "+BRAND.craftDark+" "+BRAND.punch,
+      photo:PHOTO_PROMO,
+      comp:"Square frame, FULL BLEED moody room photograph edge to edge, darkened so type reads cleanly over it. No violet panel. The product sits as an angled flatlay in the lower right of the frame.",
+      typo:'[TYPOGRAPHY] Integrated typography. '+BRAND.typeRule+' '+' The OFFER as the largest thing on the frame: "'+h1+'" set in heavy gold #EBA800, with "'+h2+'" directly beneath it in white at a smaller size. Beneath that '+proofs("gold")+' Then a single line of white text stating the deadline: "'+deadline+'". Directly below the deadline '+BRAND.ctaRule+' The pill reads "'+cta+'". Beneath the pill, small white text reading "'+contact+'".',
+      avoid:AVOID_BASE+", no violet background block, no flat colour panel behind the type, no colour outside the HitLights palette",
+      keep:"the same darkened room photograph, the same gold offer figure, the same deadline line, the same angled product flatlay",
+      port:"Stack the type down the upper half of the taller frame and move the angled product flatlay to the lower portion.",
+      land:"Set the type down the left portion of the frame and move the angled product flatlay to the right portion."
+    };
+
+    // ---------------- 4 — Aesthetic Lifestyle ----------------
+    T.lifestyle={
+      sys:BRAND.systemLight+" "+BRAND.craftLight+" "+BRAND.skeleton+" "+BRAND.punch,
+      photo:PHOTO_LIGHT,
+      comp:"Square frame. A soft warm cream panel occupying one side carrying all of the type, with a single styled room photograph filling the other side. Deep violet #523875 appears only as a small accent \u2014 never as a full-bleed block.",
+      typo:'[TYPOGRAPHY] Integrated typography. '+BRAND.typeRule+' '+' '+hl()+', line one in ink #232323 and line two in gold #EBA800. Beneath the headline '+proofs("gold")+' Below those '+BRAND.ctaRule+' The pill reads "'+cta+'". Beneath the pill, small text reading "'+contact+'".',
+      avoid:AVOID_BASE+", no flat solid colour bands disconnected from the scene, no colour outside the HitLights palette, no tool belts, no job site, no work gloves, no exposed construction",
+      keep:"the same cream panel and the same room photograph",
+      port:"Place the photograph across the upper portion of the frame and the cream panel with all of the type across the lower portion, in this reading order \u2014 wordmark, headline, proof lines, gold pill, contact line.",
+      land:"Cream panel filling the left portion of the frame with the photograph filling the right portion, in this reading order down the left \u2014 wordmark, headline, proof points, gold pill with the contact line beside it."
+    };
+
+    // ---------------- 5 — Spotlight ----------------
+    T.spotlight={
+      sys:BRAND.systemSpot+" "+BRAND.craftSpot+" "+BRAND.skeletonSpot+" "+BRAND.punchSpot,
+      photo:PHOTO_SPOT,
+      comp:"Square frame, FULL BLEED. The photograph fills the entire canvas edge to edge. A deep warm near-black scrim lies over the whole image so white type reads cleanly against it. The type stack is centre-aligned in the upper half; the product occupies the lower third as the foreground hero.",
+      typo:'[TYPOGRAPHY] Integrated typography, every word in pure white except the pill. '+BRAND.typeRule+' '+' a heavy two-line headline in TITLE CASE \u2014 "'+h1+'" then "'+h2+'" \u2014 both lines pure white, tightly stacked, the largest thing on the frame. Directly under the headline a single short horizontal hairline rule in amber #FFAB00, only about a third of the headline\u2019s width, thin and quiet. Below the rule a supporting sentence in a much lighter weight, white, set over two lines: "'+sub+'". Below that '+BRAND.ctaSpot+' The pill reads "'+cta+'". Beneath the pill, small white text reading "'+contact+'". There are no bullet points and no proof-point list anywhere on this frame.',
+      avoid:AVOID_BASE+", no people, no bullet points, no proof-point list, no gold or amber headline text, no purple or violet anywhere, no flat colour panel, no colour block, no solid band or bar behind the type, no split-screen layout, no daylight",
+      keep:"the same full-bleed treatment with no panel or colour block, the same product in the foreground, the same amber hairline rule, the same supporting sentence \u201c"+sub+"\u201d, every line of the headline still in pure white",
+      port:"Keep the type stack centre-aligned and move it into the upper third, and let the product grow to fill the whole lower half of the taller frame, still running off the bottom edge.",
+      land:"Move the entire type stack to the RIGHT side of the frame and set it right-aligned, and move the product to the lower LEFT where it runs off the left and bottom edges.",
+      fgProduct:true
+    };
+
+    var C=T[tpl]||T.collage;
+    var prod = C.fgProduct
+      ? "The product shown in the reference image. Preserve its exact proportions, hardware details, markings and finish. It sits in the FOREGROUND, large, sharply lit and glowing warm, overlapping the room behind it and running off the left and bottom edges of the frame."
+      : "The product shown in the reference image. Preserve its exact proportions, hardware details, markings and finish.";
+
+    if(kind==="master"){
+      return "[BRAND SYSTEM \u2014 HitLights, non-negotiable]\n"+C.sys+" "+BRAND.trust+
+        "\n\n[PRODUCT \u2014 must match the reference image exactly]\n"+prod+
+        "\n\n[SCENE]\n"+scene+" "+C.photo+
+        "\n\n[COMPOSITION] "+C.comp+
+        "\n\n"+reserved+
+        "\n\n"+C.typo+
+        "\n\n[QUALITY] Scroll-stopping, magazine-quality product advertising, hyper-detailed, performance-ad ready.\n\n[AVOID] "+C.avoid+"\n\nresolution: 2k";
+    }
+    return "Recompose this exact advertisement into a "+(kind==="portrait"?"TALL VERTICAL 9:16":"WIDE HORIZONTAL 16:9")+
+      " frame. This must read as the same single ad, simply laid out for a different canvas \u2014 not a new design.\n\nKEEP IDENTICAL, with no substitutions: the same photograph and the same subject within it, "+C.keep+
+      ", the same wordmark, the same headline word for word (\""+h1+"\" then \""+h2+"\"), the same call-to-action pill reading \""+cta+"\", the same contact details \""+contact+"\", the same typeface, weights and colours throughout.\n\nCHANGE ONLY THE ARRANGEMENT: "+(kind==="portrait"?C.port:C.land)+
+      " Keep every element of text comfortably inside the frame with a generous clear margin at the very top and the very bottom.\n\n"+reserved+"\n\n[AVOID] "+C.avoid+", no new or different photograph, no changed wording, no changed colours, no changed logo, no extra elements\n\nresolution: 2k";
+  }
+
+  // Each template needs a different set of fields and a different kind of
+  // photograph, so the form and the worked example move with the choice.
+  var SCENES={
+    collage:"A licensed electrician's gloved hands seating the product into a single steel gang box in an open drywall wall, neat copper conductors visible, deep violet shadow behind.",
+    bubble:"A finished two-storey home at dusk with warm LED runs tracing the soffit and the entry canopy, a contractor's van just visible on the driveway.",
+    promo:"A dark media wall at night, the television off, LED backlighting washing the wall behind it in warm light and deep shadow.",
+    lifestyle:"A styled bedroom at golden hour, warm LED light glowing from behind a floating shelf above the bed, linen and ceramics catching the light.",
+    spotlight:"A contemporary concrete-and-timber kitchen and living space at dusk, a continuous cove run tracing the ceiling perimeter and shelf lights washing the cabinetry, the rest of the room falling away into warm shadow."
+  };
+  var HINTS={
+    collage:"Collage Hero — violet panel one side, a collage of room, product and macro shots the other. The workhorse ad for installers and specifiers.",
+    bubble:"Speech-Bubble Hero — no panel. A full-bleed job-site or finished-project photo with an opaque white card over the top third carrying the headline and the pill, and the contact details along the bottom.",
+    promo:"Discount Deadline — no panel. A moody room photo with the offer figure large in gold, the deadline line under it, and the product angled into the lower right.",
+    lifestyle:"Styled Room Hero — cream panel one side, one styled room photo the other, violet only as an accent. Rules out job sites, tool belts and work gloves — avoiding that imagery is the entire reason it exists.",
+    spotlight:"Glow Room Hero — full bleed: the LED-lit room fills the whole canvas, the product sits in front of it, every word is white and amber is spent only on the pill and one hairline rule. Describe the ROOM in the shot field — no people."
+  };
+  var LH1={
+    collage:"Headline line 1 — gold", bubble:"Headline line 1 — ink, in the card",
+    promo:"The offer — gold, largest on the frame", lifestyle:"Headline line 1 — ink",
+    spotlight:"Headline line 1 — white"
+  };
+  var LH2={
+    collage:"Headline line 2 — white", bubble:"Headline line 2 — ink, in the card",
+    promo:"Supporting line — white", lifestyle:"Headline line 2 — gold",
+    spotlight:"Headline line 2 — white"
+  };
+  function applyTemplate(){
+    var t=$("ground").value;
+    $("ppwrap").hidden = (t==="spotlight");
+    $("subwrap").hidden = (t!=="spotlight");
+    $("dlwrap").hidden  = (t!=="promo");
+    $("lh1").textContent=LH1[t]||LH1.collage;
+    $("lh2").textContent=LH2[t]||LH2.collage;
+    $("tplhint").textContent=HINTS[t]||"";
+    // Swap the worked example only while it is still one of the untouched
+    // defaults, so a scene someone has written is never overwritten.
+    var sc=$("scene"), v=sc.value.trim(), known=false, k;
+    for(k in SCENES){ if(SCENES[k]===v) known=true; }
+    if(known && SCENES[t]) sc.value=SCENES[t];
+  }
+  $("ground").addEventListener("change", applyTemplate);
+  applyTemplate();
+
+
+  // ---------- have Claude draft the message ----------
+  function fillIf(id,v){ if(typeof v==="string"&&v.trim()) $(id).value=v.trim(); }
+  $("draft").addEventListener("click", function(){
+    if(!sample){ return; }
+    var btn=$("draft"), hint=$("drafthint");
+    if(btn.disabled) return;
+    if(!picked && !$("angle").value.trim()){
+      hint.textContent="Pick a product first, or describe the angle here."; return;
+    }
+    btn.disabled=true; var was=btn.textContent; btn.textContent="Writing\u2026";
+    hint.textContent="Reading the product and drafting\u2026";
+    var known="";
+    if(picked&&picked.title) known+="Product name: "+picked.title+"\n";
+    if(picked&&picked.desc)  known+="Product listing copy: "+picked.desc+"\n";
+    if(!known) known="No product listing was available \u2014 work only from the angle below.\n";
+    var angle=$("angle").value.trim();
+    var tpl=$("ground").value;
+    var spot=(tpl==="spotlight"), promo=(tpl==="promo");
+    var brief=
+      "You write Meta ad creative for HitLights, a California LED lighting supplier selling UL-listed LED strip, dimmers, drivers and accessories to electricians, contractors, commercial specifiers and homeowners.\n\n"+
+      "PRODUCT DATA (the only source of fact you have):\n"+known+"\n"+
+      "ANGLE REQUESTED: "+(angle||"none given \u2014 choose the strongest angle the product data supports")+"\n"+
+      "REGISTER: "+(
+        spot ? "brand statement \u2014 a confident line about the product line as a whole, aimed at professionals. Not a spec sheet and not a promotion. Think of a single claim the brand would put on a billboard." :
+        promo ? "promotional urgency \u2014 an offer with a deadline. The offer figure IS the headline. Do not invent a discount, a percentage or a date: if the angle above does not state one, write the offer line as a benefit and leave the deadline generic." :
+        tpl==="lifestyle" ? "consumer lifestyle \u2014 a homeowner improving a room. Mood and everyday benefit first, specification second. No trade or job-site framing at all." :
+        tpl==="bubble" ? "professional trade, reassurance-led \u2014 an electrician or contractor deciding who to buy from. Service, support and reliability lead; this copy sits inside a white card over a photograph, so keep the lines short." :
+        "professional trade \u2014 an electrician, contractor or specifier. Reliability, code compliance and install time lead."
+      )+"\n\n"+
+      "HARD RULES:\n"+
+      "1. Never invent, estimate or round a specification. Use a figure ONLY if it appears in the product data above. If there are no figures there, write benefit-led proof points that state no numbers at all. A wrong number is worse than no number.\n"+
+      "2. Claim nothing the product data does not support.\n"+
+      "3. Voice: confident, practical, specific. No hype, no exclamation marks, no emoji, no ALL-CAPS words inside sentences.\n\n"+
+      (promo
+        ? "WRITE:\n"+
+          "h1 \u2014 the offer line, 2 to 4 words, upper case, no full stop. If the angle above names a real discount or offer, use it exactly. If it does not, write a benefit line instead and invent nothing.\n"+
+          "h2 \u2014 the supporting line under the offer, 2 to 4 words, upper case.\n"+
+          "p1, p2, p3 \u2014 three proof points, each under 28 characters, sentence case, the most concrete facts available.\n"+
+          "deadline \u2014 the urgency line, under 24 characters. Use a real date ONLY if the angle above gives one; otherwise write a generic phrase such as \"Limited Time Only\".\n"+
+          "cta \u2014 2 to 4 words, upper case, an imperative verb first.\n"+
+          "scene \u2014 ONE sentence describing a moody, ambient room at night that this lighting visibly transforms. Concrete and physical. Do not describe the product\'s appearance, do not mention text, logos, colours or layout.\n\n"+
+          "Reply with JSON only, no commentary: {\"h1\":\"\",\"h2\":\"\",\"p1\":\"\",\"p2\":\"\",\"p3\":\"\",\"deadline\":\"\",\"cta\":\"\",\"scene\":\"\"}"
+      : (spot
+        ? "WRITE:\n"+
+          "h1 \u2014 headline line one, 1 to 2 words, Title Case, no full stop.\n"+
+          "h2 \u2014 headline line two, 1 to 2 words, Title Case, no full stop. Together the two lines read as one short confident phrase, under 30 characters in total \u2014 in the manner of \"Built For Professionals\".\n"+
+          "sub \u2014 ONE supporting sentence, sentence case, 6 to 10 words, no full stop. It sits under the headline and carries the promise.\n"+
+          "cta \u2014 2 to 4 words, Title Case, an imperative verb first.\n"+
+          "scene \u2014 ONE sentence describing an interior at dusk, lit only by the LED installation: what kind of room it is, what surfaces and materials are in it, where the light runs. No people. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n"+
+          "Reply with JSON only, no commentary: {\"h1\":\"\",\"h2\":\"\",\"sub\":\"\",\"cta\":\"\",\"scene\":\"\"}"
+        : "WRITE:\n"+
+          "h1 \u2014 headline line one, 2 to 4 words, upper case, ending in a full stop.\n"+
+          "h2 \u2014 headline line two, 2 to 4 words, upper case, ending in a full stop. Together the two lines are one short sentence or one tight pairing, under 40 characters in total.\n"+
+          "p1, p2, p3 \u2014 three proof points, each under 28 characters, sentence case, the most concrete facts available.\n"+
+          "cta \u2014 2 to 4 words, upper case, an imperative verb first.\n"+
+          "scene \u2014 ONE sentence describing a photograph: who is in frame, what they are doing, where. Concrete and physical. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n"+
+          "Reply with JSON only, no commentary: {\"h1\":\"\",\"h2\":\"\",\"p1\":\"\",\"p2\":\"\",\"p3\":\"\",\"cta\":\"\",\"scene\":\"\"}"));
+    sample.json(brief,{modelTier:"default"}).then(function(o){
+      if(!o||typeof o!=="object") throw new Error("empty");
+      fillIf("h1",o.h1); fillIf("h2",o.h2);
+      fillIf("p1",o.p1); fillIf("p2",o.p2); fillIf("p3",o.p3);
+      fillIf("sub",o.sub); fillIf("deadline",o.deadline);
+      fillIf("cta",o.cta); fillIf("scene",o.scene);
+      hint.textContent="Drafted from the product listing \u2014 read it over and edit anything that\u2019s off.";
+    }).catch(function(e){
+      var c=e&&e.code;
+      if(c==="not_granted") hint.textContent="Drafting isn\u2019t available in this view. Fill the fields in by hand.";
+      else if(c==="rate_limited") hint.textContent="Too many requests just now. Wait a moment and try again.";
+      else hint.textContent="Couldn\u2019t draft it that time. Try again, or write the fields yourself.";
+    }).then(function(){ btn.disabled=false; btn.textContent=was; });
+  });
+
+  // ---------- generation ----------
+  function waitJobs(jobs){
+    var tries=0;
+    function once(){
+      tries++;
+      return mcp.callTool(HF,"jobs_wait",{jobs:jobs,timeout_seconds:15},{cache:false}).then(function(r){
+        var p=r&&r.payload||{};
+        if(p.all_terminal) return p.jobs||[];
+        if(tries>=14) throw {code:"server_unavailable",server:HF,message:"Still rendering after several minutes."};
+        log("  still rendering…");
+        return once();
+      });
+    }
+    return once();
+  }
+  function firstUrl(jobs,index){
+    for(var i=0;i<jobs.length;i++){ if(jobs[i].index===index) return jobs[i]; }
+    return jobs[0];
+  }
+  function show(title,dims,job){
+    var c=document.createElement("div"); c.className="outcard";
+    var b=document.createElement("b"); b.textContent=title; c.appendChild(b);
+    var d=document.createElement("span"); d.className="dim"; d.textContent=dims; c.appendChild(d);
+    if(job&&job.result_url){
+      var a=document.createElement("a");
+      a.href=job.result_url; a.target="_blank"; a.rel="noopener noreferrer";
+      a.textContent="Open the full-size image ↗";
+      c.appendChild(a);
+      var h=document.createElement("span"); h.className="dim";
+      h.textContent="Raw render — correct artwork, but no logo and not yet cropped. Use the finished files below, not this.";
+      c.appendChild(h);
+    } else {
+      var e=document.createElement("span"); e.className="dim"; e.textContent="No image came back for this size.";
+      c.appendChild(e);
+    }
+    outEl.appendChild(c);
+  }
+
+  $("go").addEventListener("click", function(){
+    if(busy) return;
+    outEl.innerHTML=""; logEl.textContent=""; logEl.dataset.fresh="1"; renders={};
+    if(!mcp||!haveHF){
+      fail("Higgsfield isn't connected to your Claude",
+        "Generating bills to whoever runs it, so it needs the Higgsfield connector on your own account. See the banner at the top of the page for the steps "+ "\u2014 or press Build the prompt pack, which needs no connectors at all.");
+      try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){}
+      return;
+    }
+    if(!picked||!picked.url){ fail("Pick a product image first","Search the catalog and choose a product, or paste a public image URL."); return; }
+    if(!$("h1").value.trim()&&!$("h2").value.trim()){ fail("Write a headline","At least one headline line is needed."); return; }
+    busy=true; $("go").disabled=true; $("go").textContent="Generating…";
+
+    log("Importing the product image…");
+    // Only the product goes to the generator. The logo is deliberately withheld:
+    // the prompt tells it to leave that corner empty, and the artwork is laid in
+    // afterwards from the real file.
+    mcp.callTool(HF,"media_import_url",{url:picked.url,type:"image"},{cache:false})
+    .then(function(r){
+      var id=r&&r.payload&&r.payload.media_id;
+      if(!id) throw {code:"tool_error",server:HF,message:"The image URL couldn't be imported. It must be a direct, publicly reachable image link."};
+      log("Image imported.","s-ok");
+      log("Rendering the square master…");
+      return mcp.callTool(HF,"generate_image_batch",{requests:[{index:1,params:{
+        model:"nano_banana_pro",aspect_ratio:"1:1",resolution:"2k",count:1,
+        medias:[{value:id,role:"image_references"}],
+        prompt:prompt_("master")
+      }}]},{cache:false});
+    })
+    .then(function(r){
+      var jobs=(r&&r.payload&&r.payload.jobs)||[];
+      if(!jobs.length) throw {code:"tool_error",server:HF,message:"No render job was created."};
+      return waitJobs(jobs.map(function(j){return {index:j.index,job_id:j.job_id}}));
+    })
+    .then(function(done){
+      var m=firstUrl(done,1);
+      if(!m||m.status!=="completed") throw {code:"tool_error",server:HF,message:"The square master didn't finish."};
+      log("Square master done.","s-ok");
+      renders[1]=m;
+      show("Square","1080 × 1080",m);
+      log("Building portrait and landscape from the master…");
+      return mcp.callTool(HF,"generate_image_batch",{requests:[
+        {index:2,params:{model:"nano_banana_pro",aspect_ratio:"9:16",resolution:"2k",count:1,medias:[{value:m.job_id,role:"image_references"}],prompt:prompt_("portrait")}},
+        {index:3,params:{model:"nano_banana_pro",aspect_ratio:"16:9",resolution:"2k",count:1,medias:[{value:m.job_id,role:"image_references"}],prompt:prompt_("landscape")}}
+      ]},{cache:false});
+    })
+    .then(function(r){
+      var jobs=(r&&r.payload&&r.payload.jobs)||[];
+      return waitJobs(jobs.map(function(j){return {index:j.index,job_id:j.job_id}}));
+    })
+    .then(function(done){
+      renders[2]=firstUrl(done,2); renders[3]=firstUrl(done,3);
+      show("Portrait","1080 × 1920",renders[2]);
+      show("Landscape","1200 × 628 — crop from the 16:9 render",renders[3]);
+      log("All three sizes done.","s-ok");
+      if(picked.outOfStock) log("Reminder: the product you picked has zero inventory.","s-err");
+      return finish();
+    })
+    .catch(function(e){ var x=explain(e); log(x[0]+" — "+x[1],"s-err"); fail(x[0],x[1]); })
+    .then(function(){ busy=false; $("go").disabled=false; $("go").textContent="Generate the three sizes"; });
+  });
+
+
+  // ---------- Google Drive delivery ----------
+  // The page itself cannot fetch bytes from Higgsfield's CDN (an artifact is
+  // sandboxed away from external hosts), so the resize+encode runs in
+  // Higgsfield's own sandbox, which already has the file and has Pillow.
+  // It returns base64, and that goes straight into Drive's create_file.
+  var SIZES={1:{w:1080,h:1080,label:"Square"},2:{w:1080,h:1920,label:"Portrait"},3:{w:1200,h:628,label:"Landscape"}};
+  var FIT_PY=[
+    "import sys, io, base64, urllib.request",
+    "from PIL import Image",
+    "url, W, H = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])",
+    "logo, pos = sys.argv[4], sys.argv[5]",
+    "lw, tm, sm = float(sys.argv[6]), float(sys.argv[7]), float(sys.argv[8])",
+    "def get(u): return urllib.request.urlopen(u, timeout=90).read()",
+    "im = Image.open(io.BytesIO(get(url))).convert('RGB')",
+    "sw, sh = im.size",
+    "sc = max(W/sw, H/sh)",
+    "nw, nh = round(sw*sc), round(sh*sc)",
+    "im = im.resize((nw, nh), Image.LANCZOS)",
+    "l, t = (nw-W)//2, (nh-H)//2",
+    "im = im.crop((l, t, l+W, t+H))",
+    "lg = Image.open(io.BytesIO(get(logo))).convert('RGBA')",
+    "tw = max(1, round(W*lw)); th = max(1, round(lg.height * tw/lg.width))",
+    "lg = lg.resize((tw, th), Image.LANCZOS)",
+    "y = round(H*tm)",
+    "x = round(W*sm) if pos=='left' else (W - tw - round(W*sm) if pos=='right' else (W - tw)//2)",
+    "im.paste(lg, (x, y), lg)",
+    "for q in (90, 85, 80, 74, 68):",
+    "    b = io.BytesIO(); im.save(b, 'JPEG', quality=q, optimize=True, progressive=True)",
+    "    d = b.getvalue()",
+    "    if len(d) <= 700000: break",
+    "sys.stdout.write(base64.b64encode(d).decode())"
+  ].join("\n");
+  // Nothing but a plain https URL with a safe path is ever interpolated into
+  // the shell command, so a result URL can't carry shell syntax into it.
+  var URL_SAFE=/^https:\/\/[A-Za-z0-9.\-]+\/[A-Za-z0-9_\-.\/]+$/;
+  function fitCmd(url,w,h,p){
+    return "cat > /home/user/fit.py <<'HFPY'\n"+FIT_PY+"\nHFPY\npython3 /home/user/fit.py '"+url+"' "+w+" "+h+" '"+p.logo+"' "+p.pos+" "+p.w+" "+p.top+" "+p.side;
+  }
+  function today(){
+    var d=new Date(), p=function(n){return (n<10?"0":"")+n};
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+  }
+  function productName(){
+    var t=(picked&&picked.title||"").trim();
+    if(!t) t=(esc($("h1").value)+" "+esc($("h2").value)).replace(/\./g,"").trim();
+    if(!t) t="Untitled";
+    return t.replace(/[\/\\<>:"|?*]/g," ").replace(/\s+/g," ").trim().slice(0,80);
+  }
+  function driveCard(folder, saved, failed){
+    var c=document.createElement("div"); c.className="outcard drive";
+    var b=document.createElement("b"); b.textContent="Google Drive"; c.appendChild(b);
+    var d=document.createElement("span"); d.className="dim"; d.textContent=folder.title; c.appendChild(d);
+    var a=document.createElement("a");
+    a.href=folder.viewUrl; a.target="_blank"; a.rel="noopener noreferrer";
+    a.textContent="Open the folder ↗"; c.appendChild(a);
+    var h=document.createElement("span"); h.className="dim";
+    h.textContent=saved.length+" of 3 saved at exact size"+(failed.length?" — "+failed.join("; "):"")+".";
+    c.appendChild(h);
+    outEl.appendChild(c);
+  }
+  // Runs after all three renders are in. The renders carry an EMPTY logo corner
+  // by design, so this step is what makes them publishable: it crops each one to
+  // its exact size and lays the real logo artwork into the space the prompt kept
+  // clear. It always runs. Drive and the download button are just where the
+  // finished bytes go afterwards, and a failure in either never loses the work.
+  var finished=[];
+  function retryBtn(label){
+    var b=document.createElement("button");
+    b.type="button"; b.className="btn-quiet"; b.textContent=label;
+    b.addEventListener("click",function(){
+      if(busy) return;
+      b.disabled=true;
+      // Reuse the renders already paid for. Nothing is generated again.
+      finish().then(function(){ b.remove(); });
+    });
+    return b;
+  }
+  function haveAllRenders(){ return !!(renders[1]&&renders[2]&&renders[3]); }
+
+  function finishCard(folder, saved, failed){
+    var c=document.createElement("div"); c.className="outcard drive";
+    var b=document.createElement("b"); b.textContent=folder?"Google Drive":"Finished files"; c.appendChild(b);
+    var d=document.createElement("span"); d.className="dim";
+    d.textContent=folder?folder.title:"Cropped to exact size with the logo applied";
+    c.appendChild(d);
+    if(folder){
+      var a=document.createElement("a");
+      a.href=folder.viewUrl; a.target="_blank"; a.rel="noopener noreferrer";
+      a.textContent="Open the folder \u2197"; c.appendChild(a);
+    }
+    if(finished.length && dl){
+      var row=document.createElement("span"); row.className="dlrow";
+      finished.forEach(function(f){
+        var btn=document.createElement("button");
+        btn.type="button"; btn.className="btn-quiet"; btn.textContent="Save "+f.name;
+        btn.addEventListener("click",function(){
+          btn.disabled=true;
+          dl.save({filename:f.name,data:f.bytes.slice(0)}).then(function(){ btn.textContent="Saved "+f.name; },
+            function(e){ btn.disabled=false; btn.textContent=(e&&e.code==="declined")?"Save "+f.name:"Couldn\u2019t save "+f.name; });
+        });
+        row.appendChild(btn);
+      });
+      c.appendChild(row);
+    }
+    var h=document.createElement("span"); h.className="dim";
+    h.textContent=folder
+      ? saved.length+" of 3 saved to Drive at exact size"+(failed.length?" \u2014 "+failed.join("; "):"")+"."
+      : (finished.length+" of 3 finished"+(failed.length?" \u2014 "+failed.join("; "):"")+(finished.length?". Drive was off, so save them here.":""));
+    c.appendChild(h);
+    if(finished.length<3 && haveAllRenders()){
+      var r=document.createElement("span"); r.className="dlrow";
+      r.appendChild(retryBtn("Finish these renders again"));
+      var n=document.createElement("span"); n.className="dim";
+      n.style.alignSelf="center";
+      n.textContent="Reuses the renders above \u2014 nothing is generated again, so this costs no credits.";
+      r.appendChild(n);
+      c.appendChild(r);
+    }
+    outEl.appendChild(c);
+  }
+  function b64bytes(b64){
+    var bin=atob(b64), n=bin.length, a=new Uint8Array(n);
+    for(var k=0;k<n;k++) a[k]=bin.charCodeAt(k);
+    return a.buffer;
+  }
+  function finish(){
+    finished=[];
+    var tpl=$("ground").value, toDrive=$("todrive").checked && haveGD;
+    var failed=[], saved=[], folder=null;
+    log("Cropping to exact sizes and applying the HitLights logo\u2026");
+    var chain=Promise.resolve();
+    if(toDrive){
+      var name=today()+" "+productName();
+      chain=chain.then(function(){
+        return mcp.callTool(GD,"create_file",{title:name,contentMimeType:"application/vnd.google-apps.folder",parentId:DRIVE_PARENT},{cache:false});
+      }).then(function(r){
+        folder=r&&r.payload;
+        if(!folder||!folder.id) throw {code:"tool_error",server:GD,message:"The folder wasn't created."};
+        log("Drive folder created.","s-ok");
+      }, function(e){
+        var x=explain(e); folder=null;
+        log("Drive folder failed \u2014 "+x[1]+" Carrying on so the files are still finished.","s-err");
+      });
+    }
+    [1,2,3].forEach(function(i){
+      chain=chain.then(function(){
+        var sz=SIZES[i], job=renders[i], fname=sz.w+"x"+sz.h+".jpg", szk=SZKEY[i];
+        if(!job||!job.result_url){ failed.push(fname+" had no render"); return; }
+        if(!URL_SAFE.test(job.result_url)){ failed.push(fname+" had an unexpected image URL"); return; }
+        var p=place(tpl,szk); p.logo=logoUrl(tpl);
+        log("Finishing "+sz.label.toLowerCase()+" \u2014 "+sz.w+"\u00d7"+sz.h+", logo "+p.pos+"\u2026");
+        return mcp.callTool(HF,"sandbox_exec",{command:fitCmd(job.result_url,sz.w,sz.h,p),timeout_seconds:120},{cache:false})
+        .then(function(r2){
+          var pay=r2&&r2.payload||{};
+          var b64=(pay.stdout||"").trim();
+          if(pay.exit_code!==0||!b64) throw {code:"tool_error",server:HF,message:(pay.stderr||"the finishing step produced nothing").slice(0,200)};
+          finished.push({name:fname,bytes:b64bytes(b64)});
+          log("Finished "+fname+".","s-ok");
+          if(!folder) return;
+          return mcp.callTool(GD,"create_file",{title:fname,parentId:folder.id,contentMimeType:"image/jpeg",disableConversionToGoogleType:true,base64Content:b64},{cache:false})
+            .then(function(){ saved.push(fname); log("Saved "+fname+" to Drive.","s-ok"); },
+                  function(e){ var x=explain(e); failed.push(fname+" \u2014 Drive: "+x[0]); log("Drive rejected "+fname+": "+x[1],"s-err"); });
+        }, function(e){
+          var x=explain(e); failed.push(fname+" \u2014 "+x[0]);
+          log("Couldn\u2019t finish "+fname+" \u2014 "+x[0]+". "+x[1],"s-err");
+        });
+      });
+    });
+    return chain.then(function(){
+      finishCard(folder, saved, failed);
+      log(finished.length===3?"All three finished with the logo applied.":"Finished "+finished.length+" of 3.", finished.length===3?"s-ok":"s-err");
+      if(!toDrive && finished.length && !dl) log("Drive is off and this view can\u2019t offer downloads, so the finished files are only in this tab \u2014 tick Save to Google Drive and run again to keep them.","s-err");
+    }, function(e){
+      var x=explain(e);
+      log("Finishing failed \u2014 "+x[1],"s-err");
+      fail("Couldn\u2019t finish the files: "+x[0], x[1]+" The renders above are unaffected, but they carry an empty logo space \u2014 don\u2019t publish them as they are.");
+      if(haveAllRenders()) outEl.appendChild(retryBtn("Finish these renders again"));
+    });
+  }
+
+  // ---------- prompt pack (works with no connectors at all) ----------
+  function packText(){
+    var src = (picked && picked.url) ? picked.url : "";
+    var name = (picked && picked.label) ? picked.label : "";
+    var L = [];
+    L.push("HITLIGHTS AD BUILDER " + DASH + " PROMPT PACK");
+    L.push("Built " + new Date().toISOString().slice(0,10) + " to the Andromeda spec: one image ad, three sizes, one concept.");
+    L.push("");
+    L.push("HOW TO RUN THIS: paste the whole of this message into a Claude chat that has the Higgsfield");
+    L.push("connector, or hand it to someone who does. Work through the three steps in order " + DASH + " step 2");
+    L.push("and step 3 must reference the finished render from step 1, not the original product photo.");
+    L.push("");
+    L.push("PRODUCT: " + (name || "(not chosen in the builder)"));
+    L.push("PRODUCT IMAGE: " + (src || "(none " + DASH + " attach the product photo to the chat instead)"));
+    L.push("HITLIGHTS LOGO: " + logoUrl());
+    L.push("  Do NOT pass the logo to the image model. The prompts below reserve an empty");
+    L.push("  corner for it and forbid any wordmark being drawn. After each render, crop to");
+    L.push("  the exact size and composite that logo file into the reserved corner:");
+    [1,2,3].forEach(function(i){
+      var sz=SIZES[i], p=place($("ground").value, SZKEY[i]);
+      L.push("    " + sz.w + "x" + sz.h + ": " + p.pos + ", width " + Math.round(p.w*100) + "% of frame, top " + Math.round(p.top*100) + "% of frame");
+    });
+    L.push("");
+    L.push("=".repeat(78));
+    L.push("STEP 1 " + DASH + " SQUARE MASTER");
+    L.push("Import the product image with Higgsfield media_import_url, then generate_image_batch with:");
+    L.push("  model nano_banana_pro | aspect_ratio 1:1 | resolution 2k | count 1");
+    L.push("  medias: the imported media_id, role image_references");
+    L.push("PROMPT:");
+    L.push(prompt_("master"));
+    L.push("");
+    L.push("=".repeat(78));
+    L.push("STEP 2 " + DASH + " PORTRAIT, BUILT FROM THE SQUARE");
+    L.push("  model nano_banana_pro | aspect_ratio 9:16 | resolution 2k | count 1");
+    L.push("  medias: the job_id of the finished square from step 1, role image_references");
+    L.push("PROMPT:");
+    L.push(prompt_("portrait"));
+    L.push("");
+    L.push("=".repeat(78));
+    L.push("STEP 3 " + DASH + " LANDSCAPE, BUILT FROM THE SQUARE");
+    L.push("  model nano_banana_pro | aspect_ratio 16:9 | resolution 2k | count 1");
+    L.push("  medias: the job_id of the finished square from step 1, role image_references");
+    L.push("PROMPT:");
+    L.push(prompt_("landscape"));
+    L.push("");
+    L.push("=".repeat(78));
+    L.push("FINALLY: crop the three renders to exactly 1080x1080, 1080x1920 and 1200x628.");
+    L.push("Check them side by side before handover " + DASH + " same photograph, same wording, same colours.");
+    L.push("The three files are one ad at three sizes, never three different designs.");
+    return L.join("\n");
+  }
+  $("packbtn").addEventListener("click", function(){
+    if(!$("h1").value.trim() && !$("h2").value.trim()){
+      $("packhint").textContent = "Write at least one headline line first.";
+      return;
+    }
+    $("packtext").value = packText();
+    $("pack").hidden = false;
+    $("packhint").textContent = "Built from the fields above. Rebuild it after any edit.";
+    $("packcopied").textContent = "";
+  });
+  $("packcopy").addEventListener("click", function(){
+    var t = $("packtext");
+    function done(){ $("packcopied").textContent = "Copied."; }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t.value).then(done, function(){
+        t.select(); $("packcopied").textContent = "Press Ctrl/Cmd+C to copy.";
+      });
+    } else {
+      t.select(); $("packcopied").textContent = "Press Ctrl/Cmd+C to copy.";
+    }
+  });
+
+  // ---------- boot + access diagnosis ----------
+  function gateShow(cls, title, paras, steps, tail, btn){
+    var g=$("gate"); g.hidden=false; g.className="gate"+(cls?" "+cls:"");
+    g.innerHTML="";
+    var b=document.createElement("b"); b.textContent=title; g.appendChild(b);
+    (paras||[]).forEach(function(t){ var p=document.createElement("p"); p.textContent=t; g.appendChild(p); });
+    if(steps && steps.length){
+      var ol=document.createElement("ol");
+      steps.forEach(function(t){ var li=document.createElement("li"); var p=document.createElement("p");
+        p.style.margin="0"; p.textContent=t; li.appendChild(p); ol.appendChild(li); });
+      g.appendChild(ol);
+    }
+    (tail||[]).forEach(function(t){ var p=document.createElement("p"); p.textContent=t; g.appendChild(p); });
+    if(btn){
+      var x=document.createElement("button"); x.type="button"; x.className="btn-quiet";
+      x.textContent=btn.label; x.addEventListener("click", btn.fn); g.appendChild(x);
+    }
+  }
+  var SETUP_STEPS=[
+    "In claude.ai open Settings, then Connectors.",
+    "Add Higgsfield and sign in. Rendering is billed to that Higgsfield account, so it needs credit on it \u2014 a Claude subscription on its own does not cover it.",
+    "Add Shopify and connect the HitLights store. That one is only used to look products up, so you can skip it and paste an image URL instead.",
+    "Reload this page and allow both connectors when you are asked."
+  ];
+  var FALLBACK_LINE="Everything else on this page still works without them. Fill in the message, press Build the prompt pack, and you get the exact prompts to run in a Claude chat or to hand to someone who can.";
+
+  // The page was never given connector access. This is a SHARING condition,
+  // not something the viewer can fix in their own Claude settings, and it
+  // looks identical whether or not they have the connectors installed.
+  function noAccessGate(reason){
+    gateShow("", "Connectors are switched off by how this page is shared",
+      [reason,
+       "This is not something you can fix on your side. It happens even when Higgsfield and Shopify are already connected on your account \u2014 the page was never handed connector access in the first place.",
+       "A page that calls connectors is internal to the Claude organisation that owns it. It works for a signed-in member of that organisation, and never through a public or anyone-with-the-link share, or for an account outside it. Whoever shared this page needs to check both of those."],
+      null,
+      [FALLBACK_LINE],
+      {label:"Check again", fn:function(){ boot(true); }});
+  }
+
+  // The page HAS connector access, but Higgsfield is missing from this
+  // viewer's own connector list. This one the viewer can fix themselves.
+  function noHiggsfieldGate(){
+    gateShow("", "Higgsfield is not connected to your Claude account",
+      ["The images are generated with your account and your credits, not with the account that built this page, so Higgsfield has to be connected here before the Generate button does anything."],
+      SETUP_STEPS,
+      [FALLBACK_LINE],
+      {label:"Check again", fn:function(){ boot(true); }});
+  }
+
+  // Drive is optional: without it the tool still generates, it just has
+  // nowhere to file the results.
+  function driveToggle(){
+    var box=$("todrive"), row=box.parentNode;
+    if(haveGD){ box.disabled=false; row.classList.remove("off"); return; }
+    box.checked=false; box.disabled=true; row.classList.add("off");
+    var sp=row.querySelector("span");
+    sp.textContent="Google Drive isn't connected on your account, so nothing can be filed automatically. Add it in claude.ai under Settings, then Connectors — generating works either way.";
+  }
+
+  function diagnose(){
+    return mcp.listTools().then(function(r){
+      var names=((r&&r.servers)||[]).map(function(x){return (x.server||"").toLowerCase()});
+      haveHF = names.indexOf(HF.toLowerCase())>-1;
+      haveSH = names.indexOf(SH.toLowerCase())>-1;
+      haveGD = names.indexOf(GD.toLowerCase())>-1;
+      driveToggle();
+      if(haveHF && haveSH){
+        $("gate").hidden=true;
+        logEl.textContent="Ready. Pick a product, check the message, then generate.";
+      } else if(haveHF && !haveSH){
+        gateShow("ok","Shopify is not connected, so catalog search is off",
+          ["Higgsfield is connected, so generating works. To pick a product, use the Paste an image URL tab instead of the search tab \u2014 or add Shopify in claude.ai under Settings, then Connectors."],
+          null,null,{label:"Check again", fn:function(){ boot(true); }});
+        logEl.textContent="Ready. Paste a product image URL, check the message, then generate.";
+      } else {
+        noHiggsfieldGate();
+        logEl.textContent="Higgsfield is not connected. You can still build the prompt pack.";
+      }
+    }, function(){
+      haveHF=true; haveSH=true; haveGD=true; // could not enumerate; let the calls report
+      driveToggle();
+      $("gate").hidden=true;
+      logEl.textContent="Ready. Pick a product, check the message, then generate.";
+    });
+  }
+
+  function boot(again){
+    if(!(window.claude && window.claude.use)){
+      haveGD=false; driveToggle();
+      noAccessGate("This page is open outside claude.ai, where connectors are not available at all.");
+      logEl.textContent="Open in claude.ai to generate. The prompt pack works here.";
+      return;
+    }
+    if(again) gateShow("", "Checking\u2026", ["Re-reading which connectors your account has."], null, null, null);
+    window.claude.use("sample").then(function(sm){
+      if(sm){ sample=sm; $("draftbox").hidden=false; }
+    }, function(){});
+    window.claude.use("downloads").then(function(d){ dl=d; }, function(){});
+    window.claude.use("mcp").then(function(m){
+      if(!m){
+          haveGD=false; driveToggle();
+        noAccessGate("This view was not given access to connectors at all, so the page cannot reach Higgsfield or Shopify.");
+        logEl.textContent="No connector access in this view. You can still build the prompt pack.";
+        return;
+      }
+      mcp=m; diagnose();
+    }, function(){
+      noAccessGate("This view could not load connector access.");
+    });
+  }
+  boot(false);
+})();
+</script>

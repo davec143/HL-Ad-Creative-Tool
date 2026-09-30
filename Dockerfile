@@ -24,8 +24,9 @@ COPY reference ./reference
 
 # Runs, finished files and the Higgsfield sign-in live here: mount a persistent volume.
 ENV DATA_DIR=/data PORT=8080 NODE_ENV=production
-RUN mkdir -p /data && chown node:node /data
-USER node
+# Runs as root on purpose: Railway mounts volumes owned by root, so a non-root user
+# couldn't write the run history or the Higgsfield sign-in.
+RUN mkdir -p /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 CMD ["node", "server/index.mjs"]

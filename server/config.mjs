@@ -24,7 +24,8 @@ export function readConfig(env = process.env) {
   const port = num(env.PORT, 8080);
   const cfg = {
     port,
-    publicUrl: (env.PUBLIC_URL || "http://localhost:" + port).replace(/\/+$/, ""),
+    // Railway sets RAILWAY_PUBLIC_DOMAIN automatically; PUBLIC_URL overrides it (e.g. a custom domain).
+    publicUrl: (env.PUBLIC_URL || (env.RAILWAY_PUBLIC_DOMAIN ? "https://" + env.RAILWAY_PUBLIC_DOMAIN : "http://localhost:" + port)).replace(/\/+$/, ""),
     dataDir: path.resolve(env.DATA_DIR || path.join(ROOT, "data")),
     python: env.PYTHON || "python3",
     // Access: a shared password until Google sign-in is added at deploy time.

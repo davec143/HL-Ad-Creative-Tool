@@ -65,8 +65,15 @@ Everything is set with environment variables. See `.env.example`.
 - **Language model:** `LLM_PROVIDER=anthropic` uses `claude-haiku-4-5` for drafting and `claude-sonnet-5-5` for the check. `openai-compatible` works with OpenAI, Gemini or OpenRouter. `none` turns both off; everything else keeps working.
 - **Guards:** `MAX_CREDITS_PER_RUN`, `MAX_CREDITS_PER_DAY`, and `APP_PASSWORD` + `SESSION_SECRET`.
 
-## Deploy
+## Deploy (Railway)
 
-One Docker container (`Dockerfile`) with a persistent volume at `/data`. Set `PUBLIC_URL` to the
-public HTTPS address and set `APP_PASSWORD`. Then open the page and use the banner to sign in to
-Higgsfield once.
+`railway.json` sets up the build and health check.
+
+1. **Create the service.** Railway → New Project → Deploy from GitHub repo → pick this repo and branch.
+2. **Add a volume** mounted at `/data`. It holds the run history, finished files and the Higgsfield sign-in.
+3. **Set Variables.** `DATA_DIR=/data`, `APP_PASSWORD`, `SESSION_SECRET`, `SHOPIFY_STORE`, `SHOPIFY_ADMIN_TOKEN`, and optionally the LLM and Drive settings (see `.env.example`).
+   - `PORT` and the public URL come from Railway automatically.
+4. **Generate a public domain.** Settings → Networking → Generate Domain.
+5. **Sign in to Higgsfield once.** Open the page and use the banner.
+
+Keep it at **one replica**: runs are coordinated inside a single process.

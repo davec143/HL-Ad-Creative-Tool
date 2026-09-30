@@ -59,11 +59,23 @@
 
 **The template library is the source of truth, and it goes into the repo at `reference/`.** The `ad-builder.html` variants are dropped.
 
+**Logo per template, as used in the library's own template cards (decided Sept 30):**
+
+| Template | Ground behind the logo | Logo file | Placement (unchanged v16 grid) |
+|---|---|---|---|
+| T1 Collage Hero | Violet field #523875 | `hitlights-logo-white.png` | Top-left |
+| T2 Speech-Bubble | White bubble | `hitlights-logo-black.png` | Top-centre in the bubble |
+| T3 Discount Deadline | Dark gradient | `hitlights-logo-white.png` | Top-left |
+| T4 Styled Room | Photo (calm corner) | `hitlights-logo-white.png` + soft shadow | Top-left |
+| T5 Glow Room | Dark photo | `hitlights-logo-white.png` + soft shadow | Top-centre (landscape: top-right) |
+
+The logo files come from the library (they're embedded in it). They get committed to `assets/logos/`, so the app no longer fetches them from the Shopify CDN at runtime. The CONTRAST safety net stays: if the fixed colourway would be illegible, the other one is used and the file is flagged.
+
 **Where the library differs from the v16 engine (to handle in Phase 2):**
 
 | Library rule | v16 today | Plan |
 |---|---|---|
-| Two logo colourways only (white/black), "never recolour, no violet" | T2 uses a **violet** (#55426A) logo in the bubble | **Ask Danah.** Default to the library: **black** in the T2 bubble |
+| Two logo colourways only (white/black), "never recolour, no violet" | T2 uses a **violet** (#55426A) logo in the bubble | **Decided: follow the library.** T2 → **black**. The violet lockup is removed |
 | A third file, `hitlights-mark.png` (the mark alone, where the lockup won't fit) | Not used | Commit it to the repo. Not used by any template yet |
 | Colourway is picked from the actual background. A bright photo is softly darkened behind a white logo | Fixed colourway per template. Fallback to the other colourway flags CONTRAST. T4/T5 get a soft shadow | Keep v16 behaviour (it's proven). Revisit if CONTRAST flags show up in Phase 6 |
 
@@ -241,8 +253,8 @@ Each phase has an exit test. Nothing moves forward until its exit test passes.
 ## 8. What I need from you to start
 Decisions D1–D5 are settled: v16 templates, and my defaults for hosting, sign-in and models. What's left:
 
-1. **One answer:** T2 logo colour in the bubble. Black (the library rule) or violet (v16)?
-2. **Three API keys** to add as environment variables in the Claude Code environment settings (never pasted into chat):
+1. ~~T2 logo colour~~: decided, follow the library (black).
+2. **Three API keys** (Danah is providing these later. Phases 1–2 don't need them) to add as environment variables in the Claude Code environment settings (never pasted into chat):
 
    | Variable | Where it comes from | Needed for |
    |---|---|---|

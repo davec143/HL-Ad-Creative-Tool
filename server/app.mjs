@@ -9,6 +9,7 @@ import { TPL } from "../core/brand.mjs";
 import { DRAFT_SCHEMA } from "./providers/llm.mjs";
 import { fileName, blockingFlags, PipelineError } from "./pipeline.mjs";
 import { deliverability } from "../core/gates.mjs";
+import { Sessions, LoginLimiter, parseCookies, originOk, checkImageUrl, securityHeaders } from "./security.mjs";
 
 const STATIC = {
   "/": "web/index.html", "/app.js": "web/app.js", "/styles.css": "web/styles.css",
@@ -21,16 +22,6 @@ const STATIC = {
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg" };
 
 class HttpError extends Error { constructor(status, message, code) { super(message); this.status = status; this.code = code; } }
-
-// ---- signed session cookie (only used when APP_PASSWORD is set) ----
-function sign(secret, value) { return value + "." + crypto.createHmac("sha256", secret).update(value).digest("base64url"); }
-function unsign(secret, token) {
-  const i = String(token || "").lastIndexOf("."); if (i < 1) return null;
-  const v = token.slice(0, i);
-  const a = Buffer.from(sign(secret, v)), b = Buffer.from(token);
-  return a.length === b.length && crypto.timingSafeEqual(a, b) ? v : null;
-}
-function cookies(req) { return Object.fromEntries(String(req.headers.cookie || "").split(/;\s*/).filter(Boolean).map((c) => { const i = c.indexOf("="); return [c.slice(0, i), decodeURIComponent(c.slice(i + 1))]; })); }
 
 // ---- minimal ZIP (stored, no compression: JPEGs are already compressed) ----
 export function zip(files) {
@@ -61,15 +52,25 @@ export function publicRun(r, opts = {}) {
       flags: x.flags, blocking: blockingFlags(x), mode: x.mode, at: x.at || null, grid: { x: x.logo.x, y: x.logo.y, where: x.logo.where },
       qa: x.qa, fidelity: x.fidelity || null, held: x.held, drive: x.drive, output: x.output || null,
       override: x.override ? { at: x.override.at, reason: x.override.reason, actor: x.override.actor, version: x.override.version } : null,
-      delivery: deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:/.test(x.url || "") ? x.url : null,
+      delivery: deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:\/\/[^?#]+$/.test(x.url || "") ? x.url : null,
       file: x.file ? `/api/runs/${r.id}/files/${x.file}` : null, fileName: fileName(x),
     })),
   };
 }
 
-export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings = [] }) {
+export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings = [], readiness = null }) {
   const PR = { requireFidelity: !!cfg.requireFidelity };
-  const sessionName = "hlab";
+  const https = cfg.publicUrl.startsWith("https:");
+  const publicOrigin = new URL(cfg.publicUrl).origin;
+  // __Host- prefix: Secure, Path=/, no Domain — the browser enforces all three.
+  const sessionName = https ? "__Host-hlab" : "hlab";
+  const sessions = cfg.appPassword ? new Sessions({ store, secret: cfg.sessionSecret, ttlMs: cfg.sessionDays * 24 * 3600 * 1000 }) : null;
+  const limiter = new LoginLimiter();
+  const clientOf = (req) => {
+    if (cfg.trustProxy && req.headers["x-forwarded-for"]) return String(req.headers["x-forwarded-for"]).split(",").pop().trim();
+    return req.socket.remoteAddress || "?";
+  };
+  const cookieAttrs = (maxAge) => `; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${https ? "; Secure" : ""}`;
 
   async function body(req) {
     const chunks = []; let n = 0;
@@ -81,7 +82,8 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...headers });
     res.end(JSON.stringify(obj));
   }
-  function authed(req) { return !cfg.appPassword || unsign(cfg.sessionSecret, cookies(req)[sessionName]) === "ok"; }
+  // The session for this request, or null. Without APP_PASSWORD (development only) everyone is "dev".
+  function session(req) { return sessions ? sessions.verify(parseCookies(req.headers.cookie)[sessionName]) : { sid: "dev" }; }
   function cleanForm(f) {
     f = f || {}; const out = { tpl: TPL[f.tpl] ? f.tpl : "t1" };
     for (const k of FORM_FIELDS) out[k] = typeof f[k] === "string" ? f[k].slice(0, 600) : "";
@@ -89,28 +91,41 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   }
   function cleanPicked(p) {
     p = p || {};
-    const url = String(p.url || "").trim();
-    let ok = false; try { const u = new URL(url); ok = u.protocol === "https:"; } catch { ok = false; }
-    return { url: ok ? url : "", title: String(p.title || "").slice(0, 200), label: String(p.label || p.title || "").slice(0, 200), desc: String(p.desc || "").slice(0, 4000), outOfStock: !!p.outOfStock };
+    const chk = checkImageUrl(p.url, { shopifyStore: cfg.shopifyStore });
+    const str = (v, n) => String(v == null ? "" : v).slice(0, n);
+    return {
+      url: chk.ok ? chk.url : "", urlError: chk.ok ? null : chk.error, source: chk.ok ? chk.source : null,
+      title: str(p.title, 200), label: str(p.label || p.title, 200), desc: str(p.desc, 4000), outOfStock: !!p.outOfStock,
+      productId: str(p.productId, 100), variantId: str(p.variantId, 100), variantTitle: str(p.variantTitle, 200),
+      sku: str(p.sku, 100), price: str(p.price, 40), stock: ["in_stock", "out_of_stock", "unknown", "not_tracked"].includes(p.stock) ? p.stock : "unknown",
+    };
   }
   function pipelineHttp(e) {
     if (!(e instanceof PipelineError)) return e;
     const status = { already_queued: 409, ambiguous: 409, busy: 409, shutting_down: 503, not_found: 404 }[e.code] || 400;
     return new HttpError(status, e.message, e.code);
   }
-  function actorOf() { return "team"; } // single shared password: no per-person identity yet
+  // Shared team password: the actor is the session, not a person (see the SSO ADR).
+  function actorOf(req) { const s = session(req); return s ? "team-session:" + String(s.sid).slice(0, 8) : null; }
   function runOr404(id) { const r = store.getRun(id); if (!r) throw new HttpError(404, "No such set."); return r; }
 
   const routes = [
     ["POST", /^\/api\/login$/, async (req, res) => {
+      if (!sessions) return send(res, 200, { ok: true });
+      const who = clientOf(req), t = limiter.take(who); // counted before the password is checked
+      if (!t.ok) throw new HttpError(429, "Too many sign-in attempts. Try again in " + Math.ceil(t.retryAfter / 60) + " min.", "rate_limited");
       const b = await body(req);
-      const a = Buffer.from(String(b.password || "")), p = Buffer.from(cfg.appPassword);
-      if (!cfg.appPassword || (a.length === p.length && crypto.timingSafeEqual(a, p))) {
-        const secure = cfg.publicUrl.startsWith("https:") ? "; Secure" : "";
-        return send(res, 200, { ok: true }, { "Set-Cookie": `${sessionName}=${encodeURIComponent(sign(cfg.sessionSecret || "x", "ok"))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}` });
-      }
-      await new Promise((r) => setTimeout(r, 800)); // slow down guessing
-      throw new HttpError(401, "Wrong password.");
+      const a = crypto.createHash("sha256").update(String(b.password || "")).digest(), p = crypto.createHash("sha256").update(cfg.appPassword).digest();
+      if (!crypto.timingSafeEqual(a, p)) { await new Promise((r) => setTimeout(r, 400)); throw new HttpError(401, "Wrong password."); }
+      limiter.success(who);
+      const s = sessions.create();
+      send(res, 200, { ok: true, expires: s.exp }, { "Set-Cookie": `${sessionName}=${encodeURIComponent(s.token)}${cookieAttrs(Math.floor((s.exp - Date.now()) / 1000))}` });
+    }, { open: true }],
+
+    ["POST", /^\/api\/logout$/, async (req, res) => {
+      const s = session(req);
+      if (sessions && s) sessions.revoke(s.sid);
+      send(res, 200, { ok: true }, { "Set-Cookie": `${sessionName}=${cookieAttrs(0)}` });
     }, { open: true }],
 
     ["GET", /^\/api\/status$/, async (req, res) => {
@@ -148,6 +163,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
 
     ["POST", /^\/api\/runs$/, async (req, res) => {
       const b = await body(req), form = cleanForm(b.form), picked = cleanPicked(b.picked);
+      if (b.picked && b.picked.url && !picked.url) throw new HttpError(400, picked.urlError, "bad_url");
       const bad = validateForGenerate(form, { hasImage: !!picked.url });
       if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
       if (pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
@@ -222,18 +238,16 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     }],
 
     ["GET", /^\/oauth\/higgsfield\/start$/, async (req, res) => {
-      if (!renderer.provider) throw new HttpError(400, "This renderer has no sign-in.");
-      renderer.provider.pendingAuthUrl = null; renderer.client = null;
-      const st = await renderer.status();
-      if (st.connected) { res.writeHead(302, { Location: "/" }); return res.end(); }
-      if (!renderer.provider.pendingAuthUrl) throw new HttpError(502, "Higgsfield didn't offer a sign-in link: " + (st.error || "unknown"));
-      res.writeHead(302, { Location: renderer.provider.pendingAuthUrl }); res.end();
+      if (!renderer.beginAuth) throw new HttpError(400, "This renderer has no sign-in.");
+      const url = await renderer.beginAuth(session(req).sid);
+      if (!url) { res.writeHead(302, { Location: "/" }); return res.end(); } // already connected
+      res.writeHead(302, { Location: url }); res.end();
     }],
 
     ["GET", /^\/oauth\/higgsfield\/callback$/, async (req, res, m, url) => {
       const code = url.searchParams.get("code"), state = url.searchParams.get("state");
-      if (!code) throw new HttpError(400, "Higgsfield sign-in was cancelled: " + (url.searchParams.get("error") || "no code"));
-      try { await renderer.finishAuth(code, state); }
+      if (!code) throw new HttpError(400, "Higgsfield sign-in was cancelled: " + String(url.searchParams.get("error") || "no code").slice(0, 100));
+      try { await renderer.finishAuth(code, state, session(req).sid); }
       catch (e) { throw new HttpError(400, "Higgsfield sign-in didn't complete: " + e.message + " Go back to the Ad Builder and try again."); }
       res.writeHead(302, { Location: "/?higgsfield=connected" }); res.end();
     }],
@@ -248,25 +262,31 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   }
 
   return async function handler(req, res) {
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "same-origin");
-    res.setHeader("X-Frame-Options", "DENY");
     let url;
     try { url = new URL(req.url, "http://x"); } catch { res.writeHead(400); return res.end(); }
+    securityHeaders(res, { https, reference: url.pathname === "/reference" });
     try {
       if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, { ok: true });
+      if (req.method === "GET" && url.pathname === "/readyz") {
+        const r = readiness ? await readiness() : { ok: true };
+        return send(res, r.ok ? 200 : 503, r);
+      }
       if (req.method === "GET" && serveStatic(req, res, url.pathname)) return;
       for (const [method, re, fn, opt] of routes) {
         const m = url.pathname.match(re);
         if (!m || req.method !== method) continue;
-        if (!(opt && opt.open) && !authed(req)) throw new HttpError(401, "Sign in first.", "login");
+        // CSRF: every state-changing request must come from this app's own pages.
+        if (method !== "GET" && !originOk(req, publicOrigin)) throw new HttpError(403, "Cross-site request refused.", "origin");
+        if (!(opt && opt.open) && !session(req)) throw new HttpError(401, "Sign in first.", "login");
         return await fn(req, res, m, url);
       }
       throw new HttpError(404, "Not found.");
     } catch (e) {
       const status = e.status || 500;
-      if (status >= 500) console.error(req.method, url.pathname, e);
-      if (!res.headersSent) send(res, status, { error: e.message || "Server error.", code: e.code || (status === 401 ? "login" : "error") });
+      if (status >= 500) console.error(JSON.stringify({ level: "error", event: "http_error", method: req.method, path: url.pathname, code: e.code || null, message: String(e.message || e).slice(0, 300) }));
+      // 5xx without an HttpError are internal: never echo their message (paths, tokens) to the page.
+      const message = e instanceof HttpError ? e.message : "Something went wrong on the server. Try again.";
+      if (!res.headersSent) send(res, status, { error: message, code: e.code || (status === 401 ? "login" : "error") });
       else res.end();
     }
   };

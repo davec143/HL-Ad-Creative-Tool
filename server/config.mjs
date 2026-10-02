@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MIN_SECRET } from "./security.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -28,9 +29,13 @@ export function readConfig(env = process.env) {
     publicUrl: (env.PUBLIC_URL || (env.RAILWAY_PUBLIC_DOMAIN ? "https://" + env.RAILWAY_PUBLIC_DOMAIN : "http://localhost:" + port)).replace(/\/+$/, ""),
     dataDir: path.resolve(env.DATA_DIR || path.join(ROOT, "data")),
     python: env.PYTHON || "python3",
-    // Access: a shared password until Google sign-in is added at deploy time.
+    // Access: a shared team password (see docs/adr/0002-google-sso.md for the SSO proposal).
+    production: env.NODE_ENV === "production",
     appPassword: env.APP_PASSWORD || "",
     sessionSecret: env.SESSION_SECRET || "",
+    sessionDays: num(env.SESSION_DAYS, 7),
+    // Behind Railway's proxy the client address is the last X-Forwarded-For hop.
+    trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY === "1" : !!env.RAILWAY_ENVIRONMENT_NAME,
 
     // Image rendering. "higgsfield-mcp" = Higgsfield's official MCP server (the same tools, model
     // and subscription credits v16 used). "fake" = local placeholder renders for development.
@@ -78,8 +83,11 @@ export function checkConfig(cfg) {
   if (!["anthropic", "openai-compatible", "none"].includes(cfg.llmProvider)) errors.push("LLM_PROVIDER must be anthropic, openai-compatible or none");
   if (cfg.llmProvider === "openai-compatible" && (!cfg.llmBaseUrl || !cfg.llmDraftModel)) errors.push("LLM_PROVIDER=openai-compatible needs LLM_BASE_URL and LLM_DRAFT_MODEL");
   if (cfg.llmProvider !== "none" && !cfg.llmApiKey) errors.push("LLM_PROVIDER=" + cfg.llmProvider + " needs an API key (ANTHROPIC_API_KEY or LLM_API_KEY)");
-  if (cfg.appPassword && !cfg.sessionSecret) errors.push("APP_PASSWORD needs SESSION_SECRET (any long random string)");
-  if (!cfg.appPassword) warnings.push("APP_PASSWORD is not set: anyone who can reach this server can spend Higgsfield credits.");
+  if (cfg.production && !cfg.appPassword) errors.push("NODE_ENV=production requires APP_PASSWORD: without it anyone who reaches this server can spend Higgsfield credits.");
+  if (cfg.production && cfg.appPassword && cfg.appPassword.length < 10) errors.push("APP_PASSWORD must be at least 10 characters in production.");
+  if ((cfg.production || cfg.appPassword) && cfg.sessionSecret.length < MIN_SECRET) errors.push(`SESSION_SECRET must be at least ${MIN_SECRET} random characters.`);
+  if (cfg.production && !cfg.publicUrl.startsWith("https://")) errors.push("NODE_ENV=production requires an https PUBLIC_URL (or Railway's generated domain).");
+  if (!cfg.appPassword) warnings.push("APP_PASSWORD is not set: anyone who can reach this server can spend Higgsfield credits (development only).");
   if (cfg.shopifyStore && !cfg.shopifyToken) warnings.push("SHOPIFY_STORE is set without SHOPIFY_ADMIN_TOKEN: catalog search is off.");
   if (!!cfg.driveServiceAccount !== !!cfg.driveParent) warnings.push("Drive needs both GOOGLE_SERVICE_ACCOUNT_JSON and DRIVE_PARENT: Drive saving is off.");
   if (cfg.renderer === "fake") warnings.push("RENDERER=fake: images are local placeholders, not real renders.");

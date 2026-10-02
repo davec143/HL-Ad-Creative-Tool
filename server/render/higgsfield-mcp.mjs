@@ -14,25 +14,54 @@ export class RenderError extends Error {
   constructor(code, message, { sent } = {}) { super(message); this.code = code; if (sent !== undefined) this.sent = sent; }
 }
 
-// OAuth client provider that persists everything in the app's state store.
+// OAuth client provider that persists everything in the app's state store. Each sign-in attempt
+// gets its own single-use state, bound to the app session that started it, holding that attempt's
+// PKCE verifier and expiring after 10 minutes, so concurrent attempts can't overwrite each other.
+// (The SDK calls state() -> saveCodeVerifier() -> redirectToAuthorization() in that order.)
+const STATE_TTL = 10 * 60 * 1000;
 class StoreOAuthProvider {
-  constructor(store, redirectUrl) { this.store = store; this._redirect = redirectUrl; this.pendingAuthUrl = null; }
+  constructor(store, redirectUrl) { this.store = store; this._redirect = redirectUrl; this.pendingAuthUrl = null; this.sid = null; this.current = null; this.completing = null; }
   get redirectUrl() { return this._redirect; }
   get clientMetadata() {
     return { client_name: "HitLights Ad Builder", redirect_uris: [this._redirect], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
   }
-  state() { const s = crypto.randomBytes(16).toString("hex"); this.store.setState("hf-oauth-state", { s, at: Date.now() }); return s; }
+  pending() {
+    const all = this.store.getState("hf-oauth-pending", {}), now = Date.now();
+    for (const [k, v] of Object.entries(all)) if (!v || now - v.at > STATE_TTL) delete all[k];
+    return all;
+  }
+  state() {
+    const s = crypto.randomBytes(24).toString("base64url");
+    const all = this.pending(); all[s] = { sid: this.sid, at: Date.now() };
+    this.store.setState("hf-oauth-pending", all);
+    this.current = s;
+    return s;
+  }
   clientInformation() { return this.store.getState("hf-client") || undefined; }
   saveClientInformation(info) { this.store.setState("hf-client", info); }
   tokens() { return this.store.getState("hf-tokens") || undefined; }
   saveTokens(t) { this.store.setState("hf-tokens", t); }
   redirectToAuthorization(url) { this.pendingAuthUrl = url.toString(); }
-  saveCodeVerifier(v) { this.store.setState("hf-verifier", { v }); }
-  codeVerifier() { const x = this.store.getState("hf-verifier"); if (!x) throw new Error("no PKCE verifier"); return x.v; }
+  saveCodeVerifier(v) {
+    const all = this.pending();
+    if (this.current && all[this.current]) { all[this.current].verifier = v; this.store.setState("hf-oauth-pending", all); }
+  }
+  codeVerifier() {
+    const p = this.completing && this.pending()[this.completing];
+    if (!p || !p.verifier) throw new Error("no PKCE verifier for this sign-in");
+    return p.verifier;
+  }
+  // Validate and consume a state: it must exist, be unexpired, unused and belong to this session.
+  consume(state, sid) {
+    const all = this.pending(), p = state && all[state];
+    if (!p) throw new RenderError("bad_state", "Sign-in link expired, was already used, or wasn't started here.");
+    if (p.sid !== sid) throw new RenderError("bad_state", "This sign-in was started from a different session.");
+    delete all[state]; this.store.setState("hf-oauth-pending", all);
+    return p;
+  }
   invalidateCredentials(scope) {
     if (scope === "all" || scope === "client") this.store.delState("hf-client");
     if (scope === "all" || scope === "tokens") this.store.delState("hf-tokens");
-    if (scope === "all" || scope === "verifier") this.store.delState("hf-verifier");
   }
 }
 
@@ -92,12 +121,26 @@ export class HiggsfieldMcpRenderer {
     }
   }
 
-  async finishAuth(code, state) {
-    const saved = this.store.getState("hf-oauth-state");
-    if (!saved || !state || saved.s !== state) throw new RenderError("bad_state", "Sign-in link expired or was not started here. Try again.");
-    this.store.delState("hf-oauth-state");
-    const transport = this.transport || new StreamableHTTPClientTransport(this.url, { authProvider: this.provider });
-    await transport.finishAuth(code);
+  // Start a sign-in for an app session. Returns the Higgsfield URL, or null if already connected.
+  async beginAuth(sid) {
+    await this.dropClient(); this.transport = null; this.provider.pendingAuthUrl = null; this.provider.sid = sid;
+    const st = await this.status();
+    if (st.connected) return null;
+    if (!this.provider.pendingAuthUrl) throw new RenderError("server_unavailable", "Higgsfield didn't offer a sign-in link: " + (st.error || "unknown"));
+    return this.provider.pendingAuthUrl;
+  }
+
+  async finishAuth(code, state, sid) {
+    const p = this.provider.consume(state, sid); // single use, session-bound, unexpired
+    this.provider.completing = state;
+    try {
+      // The verifier is consumed with the state; keep it in memory just for this exchange.
+      this.provider.codeVerifier = () => { if (!p.verifier) throw new Error("no PKCE verifier for this sign-in"); return p.verifier; };
+      const transport = this.transport || new StreamableHTTPClientTransport(this.url, { authProvider: this.provider });
+      await transport.finishAuth(code);
+    } finally {
+      delete this.provider.codeVerifier; this.provider.completing = null;
+    }
     await this.dropClient(); this.transport = null; this.provider.pendingAuthUrl = null;
     await this.connect();
   }

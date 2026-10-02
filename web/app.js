@@ -388,6 +388,8 @@ $("packcopy").addEventListener("click", () => {
   navigator.clipboard.writeText(t.value).then(() => { $("packcopied").textContent = "Copied."; }, () => { t.select(); $("packcopied").textContent = "Press Ctrl/Cmd+C to copy."; });
 });
 
+$("logout").addEventListener("click", async () => { try { await api("/api/logout", { method: "POST" }); } catch { /* ignore */ } location.reload(); });
+
 // ---------- boot ----------
 async function refreshStatus() {
   status = await api("/api/status");
@@ -407,7 +409,7 @@ async function boot() {
   try { $("saveDrive").checked = recall("hl-save-drive") !== "0"; } catch { /* ignore */ }
   $("saveDrive").addEventListener("change", () => store("hl-save-drive", $("saveDrive").checked ? "1" : "0"));
   try { await refreshStatus(); } catch (e) { if (e.code === "login") return; fail("The server didn't answer", e.message); }
-  $("app").hidden = false; $("login").hidden = true;
+  $("app").hidden = false; $("login").hidden = true; $("logout").hidden = false;
   if (new URLSearchParams(location.search).get("higgsfield") === "connected") { history.replaceState(null, "", "/"); logEl.textContent = "Higgsfield connected. Pick a product, check the message, then generate."; }
   else if (status.renderer.connected) logEl.textContent = "Ready. " + (status.shopify ? "Pick a product" : "Paste a product image URL") + ", check the message, then generate.";
   loadRuns();

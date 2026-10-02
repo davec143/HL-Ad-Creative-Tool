@@ -25,7 +25,8 @@ async function boot(env = {}, over = {}) {
   await new Promise((r) => server.listen(0, r));
   const base = "http://127.0.0.1:" + server.address().port;
   const req = async (p, opts = {}) => {
-    const r = await fetch(base + p, { redirect: "manual", ...opts, headers: { "content-type": "application/json", ...(opts.headers || {}) }, body: opts.body && JSON.stringify(opts.body) });
+    const origin = opts.method && opts.method !== "GET" ? { origin: new URL(cfg.publicUrl).origin } : {};
+    const r = await fetch(base + p, { redirect: "manual", ...opts, headers: { "content-type": "application/json", ...origin, ...(opts.headers || {}) }, body: opts.body && JSON.stringify(opts.body) });
     const ct = r.headers.get("content-type") || "";
     return { status: r.status, headers: r.headers, json: ct.includes("json") ? await r.json() : null, buf: ct.includes("json") ? null : Buffer.from(await r.arrayBuffer()) };
   };
@@ -35,7 +36,7 @@ const FORM = { tpl: "t1", ...SAMPLE.t1, phone: "+1 855 768 4135", email: "custom
 const PICK = { url: "https://cdn.shopify.com/p.jpg", title: "EZDim 12V" };
 
 test("password gate: API locked until sign-in; wrong password refused", async () => {
-  const a = await boot({ APP_PASSWORD: "hunter2", SESSION_SECRET: "s".repeat(32) });
+  const a = await boot({ APP_PASSWORD: "hunter2", SESSION_SECRET: "s".repeat(40) });
   try {
     assert.equal((await a.req("/api/status")).status, 401);
     assert.equal((await a.req("/")).status, 200, "the page itself loads (it shows the sign-in form)");
@@ -54,7 +55,7 @@ test("generate: copy that breaks the template limits is refused before any credi
     const r = await a.req("/api/runs", { method: "POST", body: { form: { ...FORM, h1: "X".repeat(40) }, picked: PICK } });
     assert.equal(r.status, 400); assert.match(r.json.error, /doesn’t fit this template/);
     const noImg = await a.req("/api/runs", { method: "POST", body: { form: FORM, picked: { url: "http://insecure/x.jpg" } } });
-    assert.equal(noImg.status, 400); assert.match(noImg.json.error, /product image/);
+    assert.equal(noImg.status, 400); assert.match(noImg.json.error, /must start with https/);
     const t3 = await a.req("/api/runs", { method: "POST", body: { form: { tpl: "t3", ...SAMPLE.t3 }, picked: PICK } });
     assert.equal(t3.status, 400); assert.match(t3.json.error, /offer and deadline/);
     assert.equal(a.store.creditsToday(), 0);
@@ -113,13 +114,15 @@ test("draft: off without an LLM; with one, fills only the fields it returns", as
   } finally { await b.close(); }
 });
 
-test("oauth callback refuses a state it didn't issue", async () => {
-  const renderer = { name: "Higgsfield", provider: {}, status: async () => ({ connected: false, needsAuth: true }), balance: async () => null,
-    finishAuth: async (code, state) => { if (state !== "good") throw Object.assign(new Error("Sign-in link expired"), { status: 400 }); } };
+test("oauth callback errors are a clean 400; success redirects home", async () => {
+  const renderer = { name: "Higgsfield", status: async () => ({ connected: false, needsAuth: true }), balance: async () => null,
+    beginAuth: async () => "https://auth.example/authorize", finishAuth: async (code, state) => { if (state !== "good") throw new Error("Sign-in link expired"); } };
   const a = await boot({}, { renderer });
   try {
+    const st = await a.req("/oauth/higgsfield/start");
+    assert.equal(st.status, 302); assert.equal(st.headers.get("location"), "https://auth.example/authorize");
     const bad = await a.req("/oauth/higgsfield/callback?code=c&state=evil");
-    assert.equal(bad.status, 400);
+    assert.equal(bad.status, 400); assert.match(bad.json.error, /didn't complete/);
     const ok = await a.req("/oauth/higgsfield/callback?code=c&state=good");
     assert.equal(ok.status, 302); assert.equal(ok.headers.get("location"), "/?higgsfield=connected");
   } finally { await a.close(); }

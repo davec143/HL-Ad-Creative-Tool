@@ -74,10 +74,26 @@ $("tab-shop").addEventListener("click", () => tab("shop"));
 $("tab-url").addEventListener("click", () => tab("url"));
 
 // ---------- product ----------
+const STOCK_LABEL = { in_stock: "In stock", out_of_stock: "Out of stock", unknown: "Inventory unknown", not_tracked: "Inventory not tracked" };
+// Bind the selected variant: its id, SKU, price, stock and (if it has one) its own photo.
+function bindVariant(p, v) {
+  if (!v) return;
+  Object.assign(p, { variantId: v.id, variantTitle: v.title, sku: v.sku, price: v.price, stock: v.stock, outOfStock: v.stock === "out_of_stock" && !v.oversell });
+  if (v.image && v.image.url) p.url = v.image.url;
+  p.label = p.title + (v.title && v.title !== "Default Title" ? " — " + v.title : "");
+}
 function setPicked(p) {
   picked = p; const box = $("picked"); box.hidden = false; box.innerHTML = "";
   const b = el("b", null, "Using: "); box.appendChild(b); box.appendChild(document.createTextNode(p.label));
-  if (p.outOfStock) { const w = el("div", null, "Zero inventory in Shopify — point the ad at an in-stock SKU before you spend on it."); w.style.cssText = "margin-top:6px;color:var(--stop)"; box.appendChild(w); }
+  if (p.variants && p.variants.length > 1) {
+    const lab = el("label", null, "Variant"); lab.htmlFor = "variant"; lab.style.marginTop = "8px";
+    const sel = el("select"); sel.id = "variant";
+    p.variants.forEach((v, i) => { const o = el("option", null, [v.title, v.sku, v.price ? "$" + v.price : "", STOCK_LABEL[v.stock]].filter(Boolean).join(" · ")); o.value = String(i); if (v.id === p.variantId) o.selected = true; sel.appendChild(o); });
+    sel.onchange = () => { bindVariant(p, p.variants[+sel.value]); setPicked(p); };
+    box.append(lab, sel);
+  }
+  if (p.stock) { const w = el("div", null, STOCK_LABEL[p.stock] + (p.sku ? " · " + p.sku : "") + (p.price ? " · $" + p.price : "")); w.style.cssText = "margin-top:6px;color:" + (p.stock === "in_stock" ? "var(--ok)" : p.stock === "out_of_stock" ? "var(--stop)" : "var(--warn)"); box.appendChild(w); }
+  if (p.outOfStock) { const w = el("div", null, "This variant has zero inventory in Shopify — point the ad at an in-stock SKU before you spend on it."); w.style.cssText = "margin-top:6px;color:var(--stop)"; box.appendChild(w); }
   if (p.images && p.images.length > 1) {
     box.appendChild(el("div", "hint", "Build from this photo:"));
     const row = el("div", "imgpick");
@@ -105,11 +121,15 @@ async function search() {
       const left = el("span"); left.appendChild(el("b", null, n.title));
       left.appendChild(el("span", "m", (n.sku ? n.sku + "  ·  " : "") + (n.url ? (n.images.length > 1 ? n.images.length + " photos" : "image on file") : "no image on file")));
       btn.appendChild(left);
-      if (n.inventory !== null) { const s = el("span", "stk " + (n.inventory > 0 ? "in" : "out"), n.inventory > 0 ? n.inventory + " in stock" : "0 in stock"); btn.appendChild(s); }
+      const inStock = n.variants.filter((v) => v.stock === "in_stock").length;
+      const chip = n.variants.length > 1 ? (inStock + "/" + n.variants.length + " variants in stock") : (STOCK_LABEL[n.stock] + (n.variants[0] && n.variants[0].inventory != null ? " (" + n.variants[0].inventory + ")" : ""));
+      btn.appendChild(el("span", "stk " + (n.stock === "in_stock" || inStock ? "in" : "out"), chip));
       btn.addEventListener("click", () => {
         Array.from(r.children).forEach((c) => c.setAttribute("aria-pressed", "false"));
         btn.setAttribute("aria-pressed", "true");
-        setPicked({ url: n.url, label: n.title, title: n.title, desc: n.desc, outOfStock: n.inventory === 0, images: n.images });
+        const p = { url: n.url, label: n.title, title: n.title, desc: n.desc, images: n.images, variants: n.variants, productId: n.id };
+        bindVariant(p, n.variants[0]); if (!n.variants.length) p.stock = "unknown";
+        setPicked(p);
       });
       r.appendChild(btn);
     });
@@ -119,7 +139,7 @@ $("search").addEventListener("click", search);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
 function pickUrl() {
   const v = $("imgurl").value.trim(), nm = $("imgname").value.trim();
-  if (/^https:\/\//i.test(v)) setPicked({ url: v, label: nm || v, title: nm, desc: "", outOfStock: false });
+  if (/^https:\/\//i.test(v)) setPicked({ url: v, label: nm || v, title: nm, desc: "", outOfStock: false, stock: "unknown" });
 }
 $("imgurl").addEventListener("change", pickUrl);
 $("imgname").addEventListener("change", () => { if (picked && picked.url === $("imgurl").value.trim()) pickUrl(); });
@@ -168,10 +188,11 @@ $("draft").addEventListener("click", async () => {
   if (!picked && !$("angle").value.trim()) { hint.textContent = "Pick a product first, or describe the angle here."; return; }
   btn.disabled = true; const was = btn.textContent; btn.textContent = "Writing…"; hint.textContent = "Reading the product and drafting…";
   try {
-    const { form: f } = await api("/api/draft", { method: "POST", body: { form: form(), picked } });
+    const { form: f, violations = [] } = await api("/api/draft", { method: "POST", body: { form: form(), picked } });
     for (const k of ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "scene"]) if ($(k) && f[k] !== undefined) $(k).value = f[k];
     showLimits();
-    hint.textContent = "Drafted from the product listing — read it over and edit anything that's off.";
+    hint.textContent = "Drafted from the product listing — read it over and edit anything that's off." +
+      (violations.length ? " Kept out (not in the product data): " + violations.map((v) => v.field + ": " + v.reason).join("; ") + "." : "");
   } catch (e) { hint.textContent = e.code === "login" ? "" : "Couldn't draft it: " + e.message; }
   btn.disabled = false; btn.textContent = was;
 });

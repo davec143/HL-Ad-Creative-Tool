@@ -111,6 +111,12 @@ export class Pipeline {
   create({ form, picked, saveDrive, setNo = 1, folderOverride }) {
     const S = snapshot(form, picked);
     if (folderOverride) S.folder = folderOverride;
+    // The exact product and variant this set was made for, frozen at Generate time.
+    picked = picked || {};
+    S.source = {
+      imageUrl: picked.url || "", imageSource: picked.source || null, productId: picked.productId || "", variantId: picked.variantId || "",
+      variantTitle: picked.variantTitle || "", sku: picked.sku || "", price: picked.price || "", stock: picked.stock || "unknown",
+    };
     const run = {
       id: Store.newId(), ts: Date.now(), status: "queued", error: null, log: [],
       form, picked, S, setNo, saveDrive: !!saveDrive, credits: 0, pass: 0,

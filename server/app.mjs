@@ -9,6 +9,7 @@ import { TPL } from "../core/brand.mjs";
 import { DRAFT_SCHEMA } from "./providers/llm.mjs";
 import { fileName, blockingFlags, PipelineError } from "./pipeline.mjs";
 import { deliverability } from "../core/gates.mjs";
+import { guardDraft } from "../core/facts.mjs";
 import { Sessions, LoginLimiter, parseCookies, originOk, checkImageUrl, securityHeaders } from "./security.mjs";
 
 const STATIC = {
@@ -153,7 +154,9 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (!product && !form.angle.trim()) throw new HttpError(400, "Pick a product first, or describe the angle.");
       try {
         const o = await llm.json({ prompt: draftBrief(form.tpl, product, form.angle), schema: DRAFT_SCHEMA, model: cfg.llmDraftModel });
-        send(res, 200, { form: applyDraft(form, o || {}) });
+        // Anything the model claims that the product data doesn't contain is kept out.
+        const g = guardDraft(form, applyDraft(form, o || {}), [p.title, p.desc, p.variantTitle, p.sku].join("\n"));
+        send(res, 200, { form: g.form, violations: g.violations });
       } catch (e) { throw new HttpError(502, e.message, e.code); }
     }],
 

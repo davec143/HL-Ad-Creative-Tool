@@ -27,17 +27,17 @@ test("shopify: search query is identical to v16's", async () => {
   assert.equal(buildSearchQuery("   "), null);
 });
 
-test("shopify: maps products, featured image first, stock and SKU", async () => {
+test("shopify: featured image first, request headers and query", async () => {
   const node = {
-    id: "gid://shopify/Product/1", title: "EZDim 12V", description: "UL listed.", totalInventory: 0,
+    id: "gid://shopify/Product/1", title: "EZDim 12V", description: "UL listed.", status: "ACTIVE", totalInventory: 0,
     featuredMedia: { preview: { image: { url: "https://cdn/f.jpg", width: 800, height: 800 } } },
     media: { edges: [{ node: { mediaContentType: "IMAGE", preview: { image: { url: "https://cdn/a.jpg" } } } }, { node: { mediaContentType: "IMAGE", preview: { image: { url: "https://cdn/f.jpg" } } } }, { node: { mediaContentType: "VIDEO", preview: { image: { url: "https://cdn/v.jpg" } } } }] },
-    variants: { edges: [{ node: { sku: "EZD-12", price: "39.99" } }] },
+    variants: { edges: [{ node: { id: "v1", title: "Default Title", sku: "EZD-12", price: "39.99", inventoryQuantity: 0, inventoryItem: { tracked: true }, media: { edges: [] } } }] },
   };
   const p = toProduct(node);
   assert.equal(p.url, "https://cdn/f.jpg");
   assert.deepEqual(p.images.map((i) => i.url), ["https://cdn/f.jpg", "https://cdn/a.jpg"]);
-  assert.equal(p.inventory, 0); assert.equal(p.sku, "EZD-12");
+  assert.equal(p.stock, "out_of_stock"); assert.equal(p.sku, "EZD-12");
   let call;
   const s = new Shopify({ store: "hitlights.myshopify.com", token: "shpat_x", apiVersion: "2025-10", fetchImpl: async (url, init) => { call = { url, init }; return res(200, { data: { products: { edges: [{ node }] } } }); } });
   const out = await s.search("EZDim");

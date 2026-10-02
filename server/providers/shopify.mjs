@@ -10,16 +10,29 @@ export function buildSearchQuery(q) {
   return "status:active AND " + sq; // archived and draft listings can't take ad traffic
 }
 
+// Validated against the Shopify Admin schema (no deprecated fields). Scopes used: read_products,
+// read_inventory (inventoryQuantity / inventoryItem.tracked).
 const QUERY = `query Search($q: String!, $n: Int!) {
   products(first: $n, query: $q, sortKey: RELEVANCE) {
     edges { node {
-      id title handle description totalInventory
+      id title handle description status totalInventory tracksInventory hasOnlyDefaultVariant
       featuredMedia { preview { image { url width height altText } } }
-      media(first: 10) { edges { node { mediaContentType preview { image { url width height altText } } } } }
-      variants(first: 1) { edges { node { sku price } } }
+      media(first: 10) { edges { node { id mediaContentType preview { image { url width height altText } } } } }
+      variants(first: 50) { edges { node {
+        id title sku price availableForSale inventoryQuantity inventoryPolicy
+        inventoryItem { tracked }
+        media(first: 1) { edges { node { preview { image { url width height altText } } } } }
+      } } }
     } }
   }
 }`;
+
+// Stock for one variant: in_stock | out_of_stock | unknown | not_tracked.
+export function variantStock(v) {
+  if (v.inventoryItem && v.inventoryItem.tracked === false) return "not_tracked";
+  if (typeof v.inventoryQuantity !== "number") return "unknown";
+  return v.inventoryQuantity > 0 ? "in_stock" : "out_of_stock";
+}
 
 // Flatten one GraphQL product node into what the page needs.
 export function toProduct(n) {
@@ -38,12 +51,24 @@ export function toProduct(n) {
     const f = i > -1 ? images.splice(i, 1)[0] : { url: featured.url, width: featured.width, height: featured.height, alt: featured.altText || "" };
     images.unshift(f);
   }
-  const v = (n.variants && n.variants.edges && n.variants.edges[0] && n.variants.edges[0].node) || {};
+  const variants = ((n.variants && n.variants.edges) || []).map((e) => e.node || {}).map((v) => {
+    const vi = v.media && v.media.edges && v.media.edges[0] && img(v.media.edges[0].node);
+    return {
+      id: v.id || "", title: v.title || "", sku: v.sku || "", price: v.price || "",
+      inventory: typeof v.inventoryQuantity === "number" ? v.inventoryQuantity : null,
+      stock: variantStock(v), availableForSale: v.availableForSale !== false,
+      oversell: v.inventoryPolicy === "CONTINUE",
+      image: vi && vi.url ? { url: vi.url, alt: vi.altText || "" } : null,
+    };
+  });
+  const first = variants[0] || {};
   return {
-    id: n.id || "", title: n.title || "Untitled", handle: n.handle || "", desc: n.description || "",
-    url: (featured && featured.url) || (images[0] && images[0].url) || "", images,
+    id: n.id || "", title: n.title || "Untitled", handle: n.handle || "", desc: n.description || "", status: n.status || "",
+    url: (first.image && first.image.url) || (featured && featured.url) || (images[0] && images[0].url) || "", images,
+    variants, singleVariant: !!n.hasOnlyDefaultVariant || variants.length <= 1,
+    // Product-level total, kept for display only; decisions use the selected variant's stock.
     inventory: typeof n.totalInventory === "number" ? n.totalInventory : null,
-    sku: v.sku || "", price: v.price || "",
+    sku: first.sku || "", price: first.price || "", stock: first.stock || "unknown",
   };
 }
 
@@ -67,6 +92,7 @@ export class Shopify {
     const body = await res.json();
     if (body.errors && body.errors.length) throw Object.assign(new Error("Shopify: " + (body.errors[0].message || JSON.stringify(body.errors[0]))), { code: "upstream" });
     const edges = (body.data && body.data.products && body.data.products.edges) || [];
-    return edges.map((e) => toProduct(e.node));
+    // Active-only is enforced in the search query and checked again here.
+    return edges.map((e) => e.node).filter((n) => !n.status || n.status === "ACTIVE").map(toProduct);
   }
 }

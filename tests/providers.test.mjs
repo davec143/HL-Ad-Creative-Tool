@@ -61,13 +61,16 @@ test("llm: anthropic request uses structured output, images first, effort only o
   const calls = [];
   const client = { messages: { create: async (req) => { calls.push(req); return { stop_reason: "end_turn", content: [{ type: "text", text: '{"images":[{"size":"1080x1080","verdict":"pass","issues":[]}]}' }] }; } } };
   const llm = makeLlm({ llmProvider: "anthropic", llmApiKey: "k" }, { anthropicClient: client });
-  const o = await llm.json({ prompt: "check", images: [Buffer.from("jpg")], schema: QA_SCHEMA, model: "claude-sonnet-5-5", effort: "medium" });
+  const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]), PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+  const o = await llm.json({ prompt: "check", images: [JPG, PNG], schema: QA_SCHEMA, model: "claude-sonnet-5-5", effort: "medium" });
   assert.equal(o.images[0].verdict, "pass");
   const q = calls[0];
   assert.equal(q.model, "claude-sonnet-5-5");
   assert.equal(q.messages[0].content[0].type, "image");
   assert.equal(q.messages[0].content[0].source.media_type, "image/jpeg");
-  assert.equal(q.messages[0].content[1].text, "check");
+  assert.equal(q.messages[0].content[1].source.media_type, "image/png", "type sniffed, not assumed");
+  assert.equal(q.messages[0].content[2].text, "check");
+  await assert.rejects(llm.json({ prompt: "x", images: [Buffer.from("not an image")], model: "claude-haiku-4-5" }), (e) => e.code === "bad_image");
   assert.deepEqual(q.output_config, { format: { type: "json_schema", schema: QA_SCHEMA }, effort: "medium" });
   assert.ok(q.max_tokens >= 16000);
   await llm.json({ prompt: "draft", schema: DRAFT_SCHEMA, model: "claude-haiku-4-5", effort: "medium" });
@@ -89,7 +92,7 @@ test("llm: openai-compatible request shape (OpenAI / Gemini / OpenRouter)", asyn
   const llm = makeLlm({ llmProvider: "openai-compatible", llmApiKey: "k", llmBaseUrl: "https://example.com/v1/" }, {
     fetchImpl: async (url, init) => { call = { url, body: JSON.parse(init.body), auth: init.headers.Authorization }; return res(200, { choices: [{ finish_reason: "stop", message: { content: "```json\n{\"h1\":\"A\"}\n```" } }] }); },
   });
-  const o = await llm.json({ prompt: "p", images: [Buffer.from("x")], schema: DRAFT_SCHEMA, model: "gemini-flash" });
+  const o = await llm.json({ prompt: "p", images: [Buffer.from([0xff, 0xd8, 0xff, 0xdb])], schema: DRAFT_SCHEMA, model: "gemini-flash" });
   assert.equal(o.h1, "A");
   assert.equal(call.url, "https://example.com/v1/chat/completions");
   assert.equal(call.auth, "Bearer k");

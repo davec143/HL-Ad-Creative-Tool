@@ -14,13 +14,16 @@ import { SAMPLE, LOGOGRID } from "../core/brand.mjs";
 
 const PY = process.env.PYTHON || (fs.existsSync(path.join(ROOT, ".venv/bin/python")) ? path.join(ROOT, ".venv/bin/python") : "python3");
 const quiet = { error() {} };
+// Stands in for downloading the product photo (no network in tests): a small real PNG.
+const PNG1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+async function fakeSource(url, dest) { fs.writeFileSync(dest, PNG1); return { sha256: "test", bytes: PNG1.length, contentType: "image/png" }; }
 
 function setup({ fault = "", llm = null, drive = null, cfgOver = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hlab-"));
   const cfg = { ...readConfig({ DATA_DIR: dir, PYTHON: PY }), ...cfgOver };
   const store = new Store(dir);
   const renderer = new FakeRenderer({ store, python: PY, fault });
-  const pipeline = new Pipeline({ cfg, store, renderer, llm, drive, log: quiet });
+  const pipeline = new Pipeline({ cfg, store, renderer, llm, drive, log: quiet, fetchSource: fakeSource });
   return { cfg, store, renderer, pipeline, dir };
 }
 function formFor(tpl) { return { tpl, ...SAMPLE[tpl], phone: "+1 855 768 4135", email: "customerservice@hitlights.com", angle: "" }; }

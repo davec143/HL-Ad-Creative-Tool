@@ -21,6 +21,8 @@ import { snapshot, renderParams, repaintParams, qaPrompt } from "../core/engine.
 import { CANVAS, KINDS } from "../core/brand.mjs";
 import { deliverability, parseQaStrict, BLOCKING_FLAGS } from "../core/gates.mjs";
 import { QA_SCHEMA } from "./providers/llm.mjs";
+import { FIDELITY_SCHEMA, fidelityPrompt, parseFidelity } from "../core/fidelity.mjs";
+import { fetchSourceImage } from "./source-image.mjs";
 import crypto from "node:crypto";
 
 const INDEX = { master: 1, portrait: 2, landscape: 3 };
@@ -41,8 +43,9 @@ export function fileName(x) { return x.dims + (x.version > 1 ? "-v" + x.version 
 export function blockingFlags(x) { return (x.flags || []).filter((f) => BLOCKING_FLAGS.includes(f)); }
 
 export class Pipeline {
-  constructor({ cfg, store, renderer, llm, drive, log = console, sleep }) {
+  constructor({ cfg, store, renderer, llm, drive, log = console, sleep, fetchSource }) {
     Object.assign(this, { cfg, store, renderer, llm, drive, logger: log });
+    this.fetchSource = fetchSource || ((url, dest) => fetchSourceImage(url, dest, { shopifyStore: cfg.shopifyStore }));
     this.active = null;          // id of the run being worked on (one at a time)
     this.pending = new Set();    // ids queued or active: a second request for the same run is refused
     this.queue = Promise.resolve();
@@ -170,12 +173,14 @@ export class Pipeline {
     this.recover(run);
     run.status = "running"; this.save(run);
     try {
+      await this.stepSource(run);
       await this.stepImport(run);
       await this.stepMaster(run);
       await this.stepDerived(run);
       await this.stepFinish(run, run.items.filter((x) => x.url && !x.file && x.state !== "failed"));
       await this.stepRepaint(run);
       await this.stepQa(run, run.items.filter((x) => x.file && !x.qa));
+      await this.stepFidelity(run, run.items.filter((x) => x.file && !x.fidelity));
       await this.stepDrive(run, run.items.filter((x) => x.file && !x.drive));
       run.status = run.items.some((x) => x.state === "failed") ? "partial" : "done";
       this.log(run, run.status === "done" ? "Set finished." : "Set finished with a size missing — use Regenerate on it.", run.status === "done" ? "ok" : "err");
@@ -189,6 +194,21 @@ export class Pipeline {
       }
       this.log(run, (e.code === "needs_auth" ? "Higgsfield sign-in needed — " : "Stopped — ") + e.message, "err");
       this.logger.error && this.logger.error("run", id, e.code, e.message);
+    }
+    this.save(run);
+  }
+
+  // Keep the exact product photo (hash recorded) for the fidelity check. Not fatal: Higgsfield
+  // imports the URL itself; without a local copy the fidelity check reports an error (held).
+  async stepSource(run) {
+    const src = run.S.source || (run.S.source = {});
+    if (src.sha256 || src.fetchError || !run.S.url) return;
+    try {
+      const r = await this.fetchSource(run.S.url, path.join(this.store.runDir(run.id), "source.img"));
+      Object.assign(src, { file: "source.img", sha256: r.sha256, bytes: r.bytes, contentType: r.contentType || null });
+    } catch (e) {
+      src.fetchError = String(e.message || e).slice(0, 200);
+      this.log(run, "Couldn't keep a copy of the product photo (" + src.fetchError + "); the product-fidelity check can't run.", "err");
     }
     this.save(run);
   }
@@ -421,6 +441,48 @@ export class Pipeline {
 
   gate(x) { return deliverability(x, { requireFidelity: !!this.cfg.requireFidelity }); }
 
+  // Product fidelity: compare each finished ad with the product photo. Separate from text QA.
+  async stepFidelity(run, list) {
+    list = list.filter((x) => x.state === "done");
+    if (!list.length || !this.cfg.requireFidelity) return;
+    if (!this.llm) { for (const x of list) x.fidelity = { state: "off" }; this.save(run); return; }
+    const src = run.S.source || {};
+    let ref = null;
+    try { if (src.file) ref = fs.readFileSync(this.store.filePath(run.id, src.file)); } catch { ref = null; }
+    if (!ref) { for (const x of list) x.fidelity = { state: "error", message: "No copy of the product photo" + (src.fetchError ? " (" + src.fetchError + ")" : "") + "." }; this.save(run); return; }
+    this.log(run, "Checking the product against the product photo…");
+    for (let i = 0; i < list.length; i += 3) {
+      const g = list.slice(i, i + 3);
+      for (const x of g) x.fidelity = { state: "running" };
+      this.save(run);
+      try {
+        const images = [ref, ...g.map((x) => fs.readFileSync(this.store.filePath(run.id, x.file)))];
+        const o = await this.llm.json({ prompt: fidelityPrompt(g, { title: run.S.product, variantTitle: src.variantTitle }), images, schema: FIDELITY_SCHEMA, model: this.cfg.llmQaModel, effort: "medium" });
+        const parsed = parseFidelity(o, g.map((x) => x.dims));
+        if (!parsed.ok) throw Object.assign(new Error(parsed.error), { code: "bad_reply" });
+        for (const x of g) {
+          const r = parsed.results[x.dims];
+          x.fidelity = { state: r.verdict, issues: r.issues, version: x.version };
+          x.flags = x.flags.filter((f) => f !== "FIDELITY"); if (r.verdict === "fail") x.flags.push("FIDELITY");
+          this.log(run, "  " + x.dims + " product check: " + r.verdict + (r.issues.length ? " — " + r.issues.join("; ") : ""), r.verdict === "pass" ? "ok" : "err");
+        }
+      } catch (e) {
+        for (const x of g) x.fidelity = { state: "error", code: e.code || "error", message: e.message };
+        this.log(run, "  Product check couldn't run: " + e.message, "err");
+      }
+      this.save(run);
+    }
+  }
+  // A person compared an "uncertain" result with the product photo and approves it.
+  approveFidelity(id, kind, { note, actor }) {
+    const run = this.store.getRun(id), x = run && this.item(run, kind);
+    if (!x || !x.fidelity || x.fidelity.state !== "uncertain") throw new PipelineError("bad_request", "Only an uncertain product check can be approved.");
+    x.fidelity.approved = { at: Date.now(), actor: actor || null, note: String(note || "").slice(0, 300), version: x.version };
+    this.log(run, "Product check for the " + x.dims + " approved by a person.", "ok");
+    this.save(run);
+    return this.saveToDrive(id, kind);
+  }
+
   // Only deliverable files go to Drive (see core/gates.mjs), so the folder never holds one that
   // shouldn't run. A manual override is recorded per item and version.
   async stepDrive(run, list) {
@@ -471,6 +533,7 @@ export class Pipeline {
         await this.stepFinish(r, [y]);
         await this.stepRepaint(r);
         await this.stepQa(r, [y]);
+        await this.stepFidelity(r, [y]);
         await this.stepDrive(r, [y]);
         r.status = r.items.some((z) => z.state === "failed") ? "partial" : "done";
       } catch (e) {
@@ -491,6 +554,7 @@ export class Pipeline {
       for (const x of list) { x.file = null; x.repaired = x.repaired || false; }
       await this.stepFinish(r, list);
       await this.stepQa(r, list.filter((x) => x.file));
+      await this.stepFidelity(r, list.filter((x) => x.file));
       await this.stepDrive(r, list.filter((x) => x.file));
       this.save(r);
     });
@@ -500,8 +564,10 @@ export class Pipeline {
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
       const list = r.items.filter((x) => x.file && (!kind || x.kind === kind));
-      for (const x of list) x.qa = null;
+      for (const x of list) { x.qa = null; x.fidelity = null; }
+      await this.stepSource(r);
       await this.stepQa(r, list);
+      await this.stepFidelity(r, list);
       await this.stepDrive(r, list);
     });
     return this.store.getRun(id);

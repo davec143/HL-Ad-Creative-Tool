@@ -42,7 +42,10 @@ export function readConfig(env = process.env) {
     renderer: env.RENDERER || "higgsfield-mcp",
     higgsfieldMcpUrl: env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai/mcp",
     higgsfieldApiKey: env.HIGGSFIELD_API_KEY || "",
+    // Estimated cost of one Nano Banana Pro 2K render (Higgsfield doesn't report actual usage per job).
     creditsPerRender: num(env.CREDITS_PER_RENDER, 2),
+    // Auto-delivery also requires the product-fidelity check (set 0 only to opt out deliberately).
+    requireFidelity: env.REQUIRE_PRODUCT_FIDELITY !== "0",
     maxCreditsPerRun: num(env.MAX_CREDITS_PER_RUN, 12),
     maxCreditsPerDay: num(env.MAX_CREDITS_PER_DAY, 120),
     renderTimeoutMs: num(env.RENDER_TIMEOUT_MS, 7 * 60 * 1000),

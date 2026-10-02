@@ -9,6 +9,16 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export class LlmError extends Error { constructor(code, message) { super(message); this.code = code; } }
 
+// Media type from the file's magic bytes (finished ads are JPEG; product photos may not be).
+export function sniffImage(b) {
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.slice(0, 4).toString() === "RIFF" && b.slice(8, 12).toString() === "WEBP") return "image/webp";
+  if (b.slice(0, 3).toString() === "GIF") return "image/gif";
+  return null;
+}
+function mediaTypeOf(b) { const t = sniffImage(b); if (!t) throw new LlmError("bad_image", "An image for the check isn't a JPEG, PNG, WebP or GIF."); return t; }
+
 // JSON schemas for the two replies (strict: every object closed, every field required).
 export const DRAFT_SCHEMA = {
   type: "object", additionalProperties: false,
@@ -45,7 +55,7 @@ class AnthropicLlm {
   constructor({ apiKey, client }) { this.client = client || new Anthropic({ apiKey, maxRetries: 2, timeout: 120000 }); this.name = "Claude"; }
   // maxTokens is generous on purpose: on current models thinking tokens count toward it.
   async json({ prompt, images = [], schema, model, maxTokens = 16000, effort }) {
-    const content = images.map((b) => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b.toString("base64") } }));
+    const content = images.map((b) => ({ type: "image", source: { type: "base64", media_type: mediaTypeOf(b), data: b.toString("base64") } }));
     content.push({ type: "text", text: prompt });
     let res;
     try {
@@ -71,7 +81,7 @@ class AnthropicLlm {
 class OpenAiCompatibleLlm {
   constructor({ apiKey, baseUrl, fetchImpl = fetch }) { this.key = apiKey; this.base = baseUrl.replace(/\/+$/, ""); this.fetch = fetchImpl; this.name = "LLM"; }
   async json({ prompt, images = [], schema, model, maxTokens = 16000 }) {
-    const content = images.map((b) => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + b.toString("base64") } }));
+    const content = images.map((b) => ({ type: "image_url", image_url: { url: "data:" + mediaTypeOf(b) + ";base64," + b.toString("base64") } }));
     content.push({ type: "text", text: prompt });
     const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content }] };
     if (schema) body.response_format = { type: "json_schema", json_schema: { name: "reply", strict: true, schema } };

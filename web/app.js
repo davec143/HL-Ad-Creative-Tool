@@ -288,6 +288,7 @@ function card(r, x, working) {
     } else if (x.qa.state === "off") q.textContent = "Text & logo check: off (no language model configured) — read the image over yourself.";
     else { q.textContent = "Text & logo check: couldn't run (" + (x.qa.message || x.qa.code || "error") + "). "; const rb = el("button", "linkbtn", "Run it again"); rb.type = "button"; rb.onclick = () => act("recheck", { kind: x.kind }); q.appendChild(rb); }
     c.appendChild(q);
+    if (x.fidelity) c.appendChild(fidelityBox(r, x, working));
     c.appendChild(deliveryBox(r, x, working));
     if (x.drive) c.appendChild(el("span", "dim", "Saved to Drive as " + x.drive.name));
   } else if (st) c.appendChild(el("span", "dim", st));
@@ -324,6 +325,27 @@ function deliveryBox(r, x, working) {
     box.appendChild(b);
   }
   return box;
+}
+
+function fidelityBox(r, x, working) {
+  const f = x.fidelity, q = el("div", "qa");
+  const label = { pass: "Product check: matches the product photo.", fail: "Product check: the product looks changed.", uncertain: "Product check: uncertain — compare it with the product photo yourself.", running: "Product check: comparing with the product photo…", off: "Product check: off (no language model configured).", error: "Product check: couldn't run (" + (f.message || f.code || "error") + ")." }[f.state] || f.state;
+  q.appendChild(el(f.state === "fail" || f.state === "uncertain" ? "b" : "span", null, label));
+  if (f.state === "pass") q.classList.add("pass");
+  if (f.state === "fail" || (f.state === "uncertain" && !f.approved)) q.classList.add("fail");
+  if (f.issues && f.issues.length) { const ul = el("ul"); f.issues.forEach((i) => ul.appendChild(el("li", null, i))); q.appendChild(ul); }
+  if (r.source && r.source.kept) { const a = el("a", "hint", "product photo ↗"); a.href = "/api/runs/" + r.id + "/source"; a.target = "_blank"; a.rel = "noopener"; q.appendChild(a); }
+  if (f.state === "uncertain" && f.approved) q.appendChild(el("div", "dim", "Approved by a person " + new Date(f.approved.at).toLocaleString()));
+  else if (f.state === "uncertain" && !working) {
+    const b = el("button", "linkbtn", " I compared it — the product matches"); b.type = "button";
+    b.onclick = async () => {
+      if (!confirm("You compared the " + x.dims + " with the product photo and the hardware matches (connectors, shape, colour, markings)?")) return;
+      try { const { run } = await api("/api/runs/" + r.id + "/items/" + x.kind + "/approve-fidelity", { method: "POST", body: { confirm: true } }); paintRun(run); poll(); }
+      catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
+    };
+    q.appendChild(b);
+  }
+  return q;
 }
 
 // ---------- unconfirmed paid submissions: a person decides ----------

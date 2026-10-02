@@ -46,6 +46,7 @@ export function publicRun(r, opts = {}) {
   return {
     id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo,
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
+    source: r.S.source ? { sku: r.S.source.sku, variantTitle: r.S.source.variantTitle, price: r.S.source.price, stock: r.S.source.stock, imageSource: r.S.source.imageSource, sha256: r.S.source.sha256 || null, kept: !!r.S.source.file, error: r.S.source.fetchError || null } : null,
     driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
     attempts: (r.attempts || []).map((a) => ({ id: a.id, kind: a.kind, version: a.version, purpose: a.purpose, state: a.state, jobId: a.jobId, error: a.error, submittedAt: a.submittedAt, resolution: a.resolution || null, retryOf: a.retryOf })),
     items: r.items.map((x) => ({
@@ -213,6 +214,13 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       catch (e) { throw pipelineHttp(e); }
     }],
 
+    ["POST", /^\/api\/runs\/([a-z0-9]+)\/items\/(master|portrait|landscape)\/approve-fidelity$/, async (req, res, m) => {
+      const b = await body(req); runOr404(m[1]);
+      if (b.confirm !== true) throw new HttpError(400, "Confirm you compared it with the product photo.", "confirm");
+      try { send(res, 202, { run: publicRun(pipeline.approveFidelity(m[1], m[2], { note: b.note, actor: actorOf(req) }), PR) }); }
+      catch (e) { throw pipelineHttp(e); }
+    }],
+
     // A person's decision on an ambiguous paid submission. Recorded on the attempt.
     ["POST", /^\/api\/runs\/([a-z0-9]+)\/attempts\/([a-z0-9]+)\/resolve$/, async (req, res, m) => {
       const b = await body(req); runOr404(m[1]);
@@ -229,6 +237,13 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       const h = { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" };
       if (url.searchParams.get("dl")) h["Content-Disposition"] = `attachment; filename="${fileName(x)}"`;
       res.writeHead(200, h); res.end(data);
+    }],
+
+    ["GET", /^\/api\/runs\/([a-z0-9]+)\/source$/, async (req, res, m) => {
+      const r = runOr404(m[1]), src = r.S.source || {};
+      if (!src.file) throw new HttpError(404, "No copy of the product photo.");
+      res.writeHead(200, { "Content-Type": /^image\/(jpeg|png|webp|gif)$/.test(src.contentType || "") ? src.contentType : "application/octet-stream", "Cache-Control": "private, max-age=3600" });
+      res.end(fs.readFileSync(store.filePath(r.id, src.file)));
     }],
 
     ["GET", /^\/api\/runs\/([a-z0-9]+)\/zip$/, async (req, res, m) => {

@@ -25,7 +25,7 @@ function setup({ fault = "", llm = null, drive = null, cfgOver = {} } = {}) {
 }
 function formFor(tpl) { return { tpl, ...SAMPLE[tpl], phone: "+1 855 768 4135", email: "customerservice@hitlights.com", angle: "" }; }
 const PICK = { url: "https://cdn.shopify.com/p.jpg", title: "EZDim 12V LED Dimmer Driver 40W", label: "EZDim 12V LED Dimmer Driver 40W" };
-async function settle(p) { await p.queue; await p.queue; }
+async function settle(p) { for (let i = 0; i < 4; i++) await p.idle(); }
 function jpegSize(buf) { // read width/height from the SOF marker
   let i = 2;
   while (i < buf.length) {
@@ -138,32 +138,63 @@ test("regenerate the square: a new set with a (set 2) folder", async () => {
   assert.equal(r2.status, "done");
 });
 
-test("QA fail holds the file back from Drive; clean files are uploaded; force saves it", async () => {
+function mockDrive() {
   const uploads = [];
-  const drive = { enabled: true, createFolder: async (n) => ({ id: "F1", url: "https://drive.google.com/drive/folders/F1", name: n }), uploadJpeg: async (f, name, bytes) => { uploads.push(name); assert.ok(bytes.length > 1000); return { id: "d" + uploads.length }; } };
-  const prompts = [];
-  const llm = { name: "mock", json: async ({ prompt, images, schema }) => {
-    prompts.push(prompt); assert.equal(images.length, 3); assert.ok(schema);
-    return { images: [{ size: "1080x1080", verdict: "pass", issues: [] }, { size: "1080x1920", verdict: "pass", issues: [] }, { size: "1200x628", verdict: "fail", issues: ["Headline reads \"DRIVR\""] }] };
+  return { uploads, enabled: true, createFolder: async (n) => ({ id: "F1", url: "https://drive.google.com/drive/folders/F1", name: n }), findByName: async () => null, uploadJpeg: async (f, name, bytes) => { uploads.push(name); assert.ok(bytes.length > 1000); return { id: "d" + uploads.length }; } };
+}
+function qaLlm(verdicts) { // verdicts: {dims: "pass"|"fail"}; replies in a shuffled order on purpose
+  return { name: "mock", json: async ({ prompt }) => {
+    if (/product photo/i.test(prompt) && /fidelity/i.test(prompt)) return { images: Object.keys(verdicts).map((size) => ({ size, verdict: "pass", issues: [] })) };
+    return { images: Object.keys(verdicts).reverse().map((size) => ({ size, verdict: verdicts[size], issues: verdicts[size] === "fail" ? ["Headline reads \"DRIVR\""] : [] })) };
   } };
+}
+
+test("QA fail holds the file back from Drive; clean files are uploaded; override delivers only that file", async () => {
+  const drive = mockDrive();
+  const llm = qaLlm({ "1080x1080": "pass", "1080x1920": "pass", "1200x628": "fail" });
   const { pipeline, store } = setup({ llm, drive });
   const run = pipeline.start(pipeline.create({ form: formFor("t1"), picked: PICK, saveDrive: true }));
   await settle(pipeline);
   let r = store.getRun(run.id);
-  assert.match(prompts[0], /EXPECTED TEXT/);
   const L = r.items.find((x) => x.kind === "landscape");
   assert.deepEqual(L.flags, ["TEXT"]); assert.equal(L.held, true); assert.equal(L.drive, null);
-  assert.deepEqual(uploads.sort(), ["1080x1080.jpg", "1080x1920.jpg"]);
+  assert.deepEqual(drive.uploads.sort(), ["1080x1080.jpg", "1080x1920.jpg"]);
   assert.equal(r.folder.id, "F1");
-  pipeline.saveToDrive(run.id, "landscape", true);
+  assert.throws(() => pipeline.override(run.id, "landscape", { reason: "" }), /Say why/);
+  pipeline.override(run.id, "landscape", { reason: "Checked by hand: headline is correct", actor: "team" });
   await settle(pipeline);
   r = store.getRun(run.id);
-  assert.deepEqual(uploads.sort(), ["1080x1080.jpg", "1080x1920.jpg", "1200x628.jpg"]);
+  assert.deepEqual(drive.uploads.sort(), ["1080x1080.jpg", "1080x1920.jpg", "1200x628.jpg"]);
+  const o = r.items.find((x) => x.kind === "landscape").override;
+  assert.equal(o.reason, "Checked by hand: headline is correct"); assert.equal(o.actor, "team"); assert.equal(o.version, 1);
+  assert.ok(o.at && o.run === run.id && o.item === "landscape" && o.heldFor.length);
+  assert.equal(r.overrides.length, 1);
+});
+
+test("with no language model, QA is off and nothing reaches Drive automatically", async () => {
+  const drive = mockDrive();
+  const { pipeline, store } = setup({ drive });
+  const run = pipeline.start(pipeline.create({ form: formFor("t1"), picked: PICK, saveDrive: true }));
+  await settle(pipeline);
+  const r = store.getRun(run.id);
+  assert.deepEqual(drive.uploads, []);
+  assert.ok(r.items.every((x) => x.held && x.qa.state === "off"));
+});
+
+test("a QA reply that misses a size is an error for the whole group, never a pass", async () => {
+  const drive = mockDrive();
+  const llm = { name: "mock", json: async () => ({ images: [{ size: "1080x1080", verdict: "pass", issues: [] }, { size: "1080x1920", verdict: "pass", issues: [] }] }) };
+  const { pipeline, store } = setup({ llm, drive });
+  const run = pipeline.start(pipeline.create({ form: formFor("t1"), picked: PICK, saveDrive: true }));
+  await settle(pipeline);
+  const r = store.getRun(run.id);
+  assert.ok(r.items.every((x) => x.qa.state === "error" && /didn't cover 1200x628/.test(x.qa.message)));
+  assert.deepEqual(drive.uploads, []);
 });
 
 test("QA error is reported per image and can be re-run", async () => {
   let calls = 0;
-  const llm = { name: "mock", json: async () => { calls++; if (calls === 1) { const e = new Error("rate limited"); e.code = "rate_limited"; throw e; } return { images: [{ verdict: "pass", issues: [] }, { verdict: "pass", issues: [] }, { verdict: "pass", issues: [] }] }; } };
+  const llm = { name: "mock", json: async () => { calls++; if (calls === 1) { const e = new Error("rate limited"); e.code = "rate_limited"; throw e; } return { images: [{ size: "1080x1080", verdict: "pass", issues: [] }, { size: "1080x1920", verdict: "pass", issues: [] }, { size: "1200x628", verdict: "pass", issues: [] }] }; } };
   const { pipeline, store } = setup({ llm });
   const run = pipeline.start(pipeline.create({ form: formFor("t2"), picked: PICK }));
   await settle(pipeline);

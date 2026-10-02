@@ -8,6 +8,7 @@ import { validateForGenerate, draftBrief, applyDraft, FORM_FIELDS } from "../cor
 import { TPL } from "../core/brand.mjs";
 import { DRAFT_SCHEMA } from "./providers/llm.mjs";
 import { fileName, blockingFlags, PipelineError } from "./pipeline.mjs";
+import { deliverability } from "../core/gates.mjs";
 
 const STATIC = {
   "/": "web/index.html", "/app.js": "web/app.js", "/styles.css": "web/styles.css",
@@ -48,7 +49,7 @@ export function zip(files) {
 }
 
 // What the page sees of a run (no server paths).
-export function publicRun(r) {
+export function publicRun(r, opts = {}) {
   if (!r) return null;
   return {
     id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo,
@@ -58,13 +59,16 @@ export function publicRun(r) {
     items: r.items.map((x) => ({
       kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error, attemptId: x.attemptId || null,
       flags: x.flags, blocking: blockingFlags(x), mode: x.mode, at: x.at || null, grid: { x: x.logo.x, y: x.logo.y, where: x.logo.where },
-      qa: x.qa, held: x.held, drive: x.drive, rawUrl: /^https:/.test(x.url || "") ? x.url : null,
+      qa: x.qa, fidelity: x.fidelity || null, held: x.held, drive: x.drive, output: x.output || null,
+      override: x.override ? { at: x.override.at, reason: x.override.reason, actor: x.override.actor, version: x.override.version } : null,
+      delivery: deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:/.test(x.url || "") ? x.url : null,
       file: x.file ? `/api/runs/${r.id}/files/${x.file}` : null, fileName: fileName(x),
     })),
   };
 }
 
 export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings = [] }) {
+  const PR = { requireFidelity: !!cfg.requireFidelity };
   const sessionName = "hlab";
 
   async function body(req) {
@@ -139,7 +143,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     }],
 
     ["GET", /^\/api\/runs$/, async (req, res) => {
-      send(res, 200, { runs: store.listRuns(12).map((r) => { const p = publicRun(r); delete p.log; return p; }) });
+      send(res, 200, { runs: store.listRuns(12).map((r) => { const p = publicRun(r, PR); delete p.log; return p; }) });
     }],
 
     ["POST", /^\/api\/runs$/, async (req, res) => {
@@ -156,10 +160,10 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (bal != null && bal < need) throw new HttpError(402, `A set needs ${need} Higgsfield credits and the balance is ${bal}. Top up Higgsfield, then generate again.`, "credits");
       if (store.creditsToday() + need > cfg.maxCreditsPerDay) throw new HttpError(429, `Today's credit cap (${cfg.maxCreditsPerDay}) would be passed. It resets at midnight UTC.`, "credit_cap");
       const run = pipeline.start(pipeline.create({ form, picked, saveDrive: b.saveDrive !== false }));
-      send(res, 201, { run: publicRun(run) });
+      send(res, 201, { run: publicRun(run, PR) });
     }],
 
-    ["GET", /^\/api\/runs\/([a-z0-9]+)$/, async (req, res, m) => { send(res, 200, { run: publicRun(runOr404(m[1])), busy: pipeline.busy() }); }],
+    ["GET", /^\/api\/runs\/([a-z0-9]+)$/, async (req, res, m) => { send(res, 200, { run: publicRun(runOr404(m[1]), PR), busy: pipeline.busy() }); }],
 
     ["POST", /^\/api\/runs\/([a-z0-9]+)\/(resume|regenerate|refinish|recheck|drive)$/, async (req, res, m) => {
       const id = m[1], action = m[2], b = await body(req); runOr404(id);
@@ -171,8 +175,8 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
         else if (action === "regenerate") { if (!kind) throw new HttpError(400, "Which size?"); r = pipeline.regenerate(id, kind); }
         else if (action === "refinish") r = pipeline.refinish(id);
         else if (action === "recheck") r = pipeline.recheck(id, kind);
-        else r = pipeline.saveToDrive(id, kind, !!b.force);
-        send(res, 202, { run: publicRun(r) });
+        else r = pipeline.saveToDrive(id, kind);
+        send(res, 202, { run: publicRun(r, PR) });
       } catch (e) { throw pipelineHttp(e); }
     }],
 
@@ -182,12 +186,20 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       catch (e) { if (e instanceof PipelineError) throw pipelineHttp(e); throw new HttpError(502, "Couldn't search Higgsfield's history: " + e.message); }
     }],
 
+    // "Save anyway": explicit confirmation + reason, recorded on the item and the run.
+    ["POST", /^\/api\/runs\/([a-z0-9]+)\/items\/(master|portrait|landscape)\/override$/, async (req, res, m) => {
+      const b = await body(req); runOr404(m[1]);
+      if (b.confirm !== true) throw new HttpError(400, "Confirm the override first.", "confirm");
+      try { send(res, 202, { run: publicRun(pipeline.override(m[1], m[2], { reason: b.reason, actor: actorOf(req) }), PR) }); }
+      catch (e) { throw pipelineHttp(e); }
+    }],
+
     // A person's decision on an ambiguous paid submission. Recorded on the attempt.
     ["POST", /^\/api\/runs\/([a-z0-9]+)\/attempts\/([a-z0-9]+)\/resolve$/, async (req, res, m) => {
       const b = await body(req); runOr404(m[1]);
       if (!["adopt", "retry", "skip"].includes(b.action)) throw new HttpError(400, "Choose adopt, retry or skip.");
       if (b.action !== "adopt" && b.confirm !== true) throw new HttpError(400, "Confirm the decision first.", "confirm");
-      try { send(res, 202, { run: publicRun(pipeline.resolve(m[1], m[2], { action: b.action, jobId: b.jobId, charged: !!b.charged, actor: actorOf(req) })) }); }
+      try { send(res, 202, { run: publicRun(pipeline.resolve(m[1], m[2], { action: b.action, jobId: b.jobId, charged: !!b.charged, actor: actorOf(req) }), PR) }); }
       catch (e) { throw pipelineHttp(e); }
     }],
 

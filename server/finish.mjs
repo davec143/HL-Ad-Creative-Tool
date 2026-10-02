@@ -41,6 +41,33 @@ export function parseReport(report) {
   };
 }
 
+export const MAX_BYTES = 460000;
+
+// Read a JPEG's pixel size from its SOF marker (no decoding). Returns [w, h] or null.
+export function jpegSize(buf) {
+  if (!buf || buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) return null;
+    const m = buf[i + 1];
+    if (m === 0xd9 || m === 0xda) return null;
+    const len = buf.readUInt16BE(i + 2);
+    if (m >= 0xc0 && m <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(m)) return [buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5)];
+    i += 2 + len;
+  }
+  return null;
+}
+// Independent check of a finished file: exists, is a JPEG of exactly W x H, <= 460 KB.
+export function validateOutput(file, W, H) {
+  let buf;
+  try { buf = fs.readFileSync(file); } catch { return { ok: false, error: "file missing" }; }
+  const dims = jpegSize(buf);
+  if (!dims) return { ok: false, error: "not a readable JPEG", bytes: buf.length };
+  if (dims[0] !== W || dims[1] !== H) return { ok: false, error: `wrong size ${dims[0]}x${dims[1]}`, width: dims[0], height: dims[1], bytes: buf.length };
+  if (buf.length > MAX_BYTES) return { ok: false, error: `${buf.length} bytes is over the ${MAX_BYTES}-byte limit`, width: W, height: H, bytes: buf.length };
+  return { ok: true, width: W, height: H, bytes: buf.length };
+}
+
 export async function finishOne({ python, src, out, W, H, logo }) {
   const { stdout } = await runPython(python, PROCESS, [src, out, W, H, JSON.stringify(finishSpec(logo))], { timeoutMs: 180000 });
   const r = parseReport(stdout);

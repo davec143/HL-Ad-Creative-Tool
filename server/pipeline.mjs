@@ -16,9 +16,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Store } from "./store.mjs";
-import { finishOne, fetchRender } from "./finish.mjs";
-import { snapshot, renderParams, repaintParams, qaPrompt, parseQa } from "../core/engine.mjs";
-import { CANVAS, KINDS, BLOCKING } from "../core/brand.mjs";
+import { finishOne, fetchRender, validateOutput } from "./finish.mjs";
+import { snapshot, renderParams, repaintParams, qaPrompt } from "../core/engine.mjs";
+import { CANVAS, KINDS } from "../core/brand.mjs";
+import { deliverability, parseQaStrict, BLOCKING_FLAGS } from "../core/gates.mjs";
 import { QA_SCHEMA } from "./providers/llm.mjs";
 import crypto from "node:crypto";
 
@@ -37,7 +38,7 @@ export function fingerprint(params) { return crypto.createHash("sha256").update(
 export class PipelineError extends Error { constructor(code, message) { super(message); this.code = code; } }
 
 export function fileName(x) { return x.dims + (x.version > 1 ? "-v" + x.version : "") + ".jpg"; }
-export function blockingFlags(x) { return (x.flags || []).filter((f) => BLOCKING.includes(f)); }
+export function blockingFlags(x) { return (x.flags || []).filter((f) => BLOCKING_FLAGS.includes(f)); }
 
 export class Pipeline {
   constructor({ cfg, store, renderer, llm, drive, log = console, sleep }) {
@@ -349,7 +350,9 @@ export class Pipeline {
     const r = await finishOne({ python: this.cfg.python, src, out, W: x.W, H: x.H, logo: x.logo });
     try { fs.unlinkSync(src); } catch { /* ignore */ }
     x.file = path.basename(out); x.mode = r.mode; x.flags = r.flags; x.at = { x: r.x, y: r.y, w: r.w, colour: r.colour };
-    x.state = "done"; x.qa = null; x.drive = null; x.held = false;
+    x.output = validateOutput(out, x.W, x.H);
+    x.state = "done"; x.qa = null; x.fidelity = null; x.drive = null; x.held = false; x.override = null;
+    if (!x.output.ok) this.log(run, "  " + x.dims + " — output check failed: " + x.output.error, "err");
     this.log(run, "  " + x.dims + " — " + r.mode.replace(/\s*\|\s*FLAGS.*$/, ""), r.flags.length ? "err" : "run");
     if (r.flags.length) this.log(run, "    flagged: " + r.flags.join(", "), "err");
   }
@@ -391,12 +394,15 @@ export class Pipeline {
       try {
         const images = g.map((x) => fs.readFileSync(this.store.filePath(run.id, x.file)));
         const o = await this.llm.json({ prompt: qaPrompt(run.S.expect, g), images, schema: QA_SCHEMA, model: this.cfg.llmQaModel, effort: "medium" });
-        parseQa(o, g.length).forEach((r, k) => {
-          const x = g[k];
-          x.qa = { state: r.pass ? "pass" : "fail", issues: r.issues };
+        // Validate locally and map by declared size; a bad reply is an error, never a pass.
+        const parsed = parseQaStrict(o, g.map((x) => x.dims));
+        if (!parsed.ok) throw Object.assign(new Error(parsed.error), { code: "bad_reply" });
+        for (const x of g) {
+          const r = parsed.results[x.dims];
+          x.qa = { state: r.pass ? "pass" : "fail", issues: r.issues, version: x.version };
           x.flags = x.flags.filter((f) => f !== "TEXT"); if (!r.pass) x.flags.push("TEXT");
           this.log(run, "  " + x.dims + " text & logo check: " + (r.pass ? "passed" : "failed — " + r.issues.join("; ")), r.pass ? "ok" : "err");
-        });
+        }
       } catch (e) {
         for (const x of g) x.qa = { state: "error", code: e.code || "error", message: e.message };
         this.log(run, "  Text & logo check couldn't run: " + e.message, "err");
@@ -405,12 +411,16 @@ export class Pipeline {
     }
   }
 
-  // Only clean files go to Drive, so the folder never holds one that shouldn't run.
-  async stepDrive(run, list, force = false) {
+  gate(x) { return deliverability(x, { requireFidelity: !!this.cfg.requireFidelity }); }
+
+  // Only deliverable files go to Drive (see core/gates.mjs), so the folder never holds one that
+  // shouldn't run. A manual override is recorded per item and version.
+  async stepDrive(run, list) {
     list = list.filter((x) => x.state === "done" && x.file && !x.drive);
     if (!list.length) return;
+    for (const x of list) x.held = !this.gate(x).deliverable;
+    this.save(run);
     if (!this.drive || !this.drive.enabled || !run.saveDrive) return;
-    for (const x of list) x.held = !force && blockingFlags(x).length > 0;
     const go = list.filter((x) => !x.held);
     this.save(run);
     if (!go.length) return;
@@ -488,12 +498,28 @@ export class Pipeline {
     });
     return this.store.getRun(id);
   }
-  saveToDrive(id, kind, force) {
+  saveToDrive(id, kind) {
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
       r.saveDrive = true; r.driveError = null;
-      await this.stepDrive(r, r.items.filter((x) => !kind || x.kind === kind), force);
+      await this.stepDrive(r, r.items.filter((x) => !kind || x.kind === kind));
     });
     return this.store.getRun(id);
+  }
+  // "Save anyway": a person accepts one held file as it is. Recorded, then delivered (only it).
+  override(id, kind, { reason, actor }) {
+    const run = this.store.getRun(id);
+    if (!run) throw new PipelineError("not_found", "No such set.");
+    const x = this.item(run, kind);
+    if (!x || x.state !== "done" || !x.file) throw new PipelineError("bad_request", "Only a finished file can be saved anyway.");
+    if (!x.output || x.output.ok !== true) throw new PipelineError("bad_request", "This file failed output validation; it can't be overridden. Regenerate it.");
+    reason = String(reason || "").trim().slice(0, 500);
+    if (reason.length < 3) throw new PipelineError("bad_request", "Say why it's OK to use as is.");
+    const g = this.gate(x);
+    x.override = { at: Date.now(), run: run.id, item: kind, version: x.version, file: x.file, reason, actor: actor || null, heldFor: g.reasons };
+    (run.overrides = run.overrides || []).push(x.override);
+    this.log(run, "Override recorded for the " + x.dims + " (v" + x.version + "): " + reason, "err");
+    this.save(run);
+    return this.saveToDrive(id, kind);
   }
 }

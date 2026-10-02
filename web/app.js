@@ -267,12 +267,8 @@ function card(r, x, working) {
     } else if (x.qa.state === "off") q.textContent = "Text & logo check: off (no language model configured) — read the image over yourself.";
     else { q.textContent = "Text & logo check: couldn't run (" + (x.qa.message || x.qa.code || "error") + "). "; const rb = el("button", "linkbtn", "Run it again"); rb.type = "button"; rb.onclick = () => act("recheck", { kind: x.kind }); q.appendChild(rb); }
     c.appendChild(q);
+    c.appendChild(deliveryBox(r, x, working));
     if (x.drive) c.appendChild(el("span", "dim", "Saved to Drive as " + x.drive.name));
-    else if (x.held) {
-      const hd = el("div", "dim", "Held back from Drive until it's fixed. ");
-      const sa = el("button", "linkbtn", "Save to Drive anyway"); sa.type = "button"; sa.onclick = () => act("drive", { kind: x.kind, force: true });
-      hd.appendChild(sa); c.appendChild(hd);
-    }
   } else if (st) c.appendChild(el("span", "dim", st));
   const row = el("div", "rowbtn");
   if (x.state === "done") { const a = el("a", "btn-quiet", "Download " + x.fileName); a.href = x.file + "?dl=1"; a.style.textDecoration = "none"; row.appendChild(a); }
@@ -285,6 +281,28 @@ function card(r, x, working) {
   if (x.rawUrl) { const a = el("a", "hint", "raw render ↗"); a.href = x.rawUrl; a.target = "_blank"; a.rel = "noopener noreferrer"; row.appendChild(a); }
   if (row.childNodes.length) c.appendChild(row);
   return c;
+}
+
+// ---------- delivery status (core/gates.mjs decides; the page only shows it) ----------
+const DELIVERY_LABEL = { passed: "Ready to use — every check passed.", held: "Held back — don't use this file yet.", unchecked: "Unchecked — not verified, so it isn't delivered automatically.", overridden: "Used anyway — a person overrode the checks.", failed: "Failed.", pending: "In progress." };
+function deliveryBox(r, x, working) {
+  const d = x.delivery || { status: "pending", reasons: [] };
+  const box = el("div", "qa " + (d.status === "passed" ? "pass" : d.status === "overridden" ? "" : "fail"));
+  box.appendChild(el("b", null, DELIVERY_LABEL[d.status] || d.status));
+  if (d.reasons.length) { const ul = el("ul"); d.reasons.forEach((t) => ul.appendChild(el("li", null, t))); box.appendChild(ul); }
+  if (x.override) box.appendChild(el("div", "dim", "Override: “" + x.override.reason + "” (" + new Date(x.override.at).toLocaleString() + ")"));
+  if ((d.status === "held" || d.status === "unchecked") && x.output && x.output.ok && !working) {
+    const b = el("button", "linkbtn", "Use it anyway…"); b.type = "button";
+    b.onclick = async () => {
+      const reason = prompt("Why is the " + x.dims + " OK to use as it is? This is recorded with the set.");
+      if (!reason || reason.trim().length < 3) return;
+      if (!confirm("Mark the " + x.dims + " as approved despite: " + d.reasons.join(" ") + "?")) return;
+      try { const { run } = await api("/api/runs/" + r.id + "/items/" + x.kind + "/override", { method: "POST", body: { reason, confirm: true } }); paintRun(run); poll(); }
+      catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
+    };
+    box.appendChild(b);
+  }
+  return box;
 }
 
 // ---------- unconfirmed paid submissions: a person decides ----------
@@ -342,9 +360,10 @@ async function loadRuns() {
       const pc = el("td"); const pb = el("button", "linkbtn", r.product || "—"); pb.type = "button"; pb.onclick = () => { openRun(r.id); window.scrollTo({ top: 0, behavior: "smooth" }); }; pc.appendChild(pb); tr.appendChild(pc);
       tr.appendChild(el("td", null, String(r.tplName || "").replace(/^Template (\d) — /, "T$1 ")));
       for (const x of r.items) {
-        const td = el("td"), ok = x.state === "done" && !x.flags.length && x.qa && x.qa.state === "pass";
-        const tag = el("span", "chip " + (ok ? "ok" : (x.state === "done" ? "warn" : "bad")));
-        tag.textContent = ok ? "clean" : (x.state !== "done" ? x.state : (x.flags.length ? x.flags.join(" ") : (x.qa && x.qa.state === "pass" ? "clean" : "unchecked")));
+        const td = el("td"), st = (x.delivery && x.delivery.status) || "pending";
+        const tag = el("span", "chip " + ({ passed: "ok", overridden: "warn", unchecked: "warn", held: "bad", failed: "bad" }[st] || "warn"));
+        tag.textContent = { passed: "passed", held: "held" + (x.flags.length ? " · " + x.flags.join(" ") : ""), unchecked: "unchecked", failed: "failed", overridden: "overridden", pending: x.state }[st] || st;
+        tag.title = (x.delivery && x.delivery.reasons.join(" ")) || "";
         if (x.version > 1) tag.textContent += " · v" + x.version;
         td.appendChild(tag); tr.appendChild(td);
       }

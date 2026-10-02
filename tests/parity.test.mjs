@@ -15,6 +15,8 @@ const H = load();
 const DEVIATIONS = {
   // Template library: white or black lockup only; T2's card uses black (decided Sept 30, 2026).
   logoColour: { t2: ["violet", "black"] },
+  // Terminology (Oct 2026): Andromeda is Meta's ad-retrieval system, not a three-size file spec.
+  packHeader: [" to the Andromeda spec: one image ad, three sizes, one concept.", ": one image ad, three placement sizes, one concept."],
 };
 function legacyGrid(tpl, kind) {
   const g = JSON.parse(JSON.stringify(H.gridSpec(tpl, kind)));
@@ -107,7 +109,9 @@ test("parity: prompt pack steps 1-3 and Logo Grid lines", () => {
     H.setForm(form);
     const picked = { url: "https://cdn.shopify.com/p.jpg", label: "EZDim Pro" };
     H.setPicked(picked);
-    const a = E.packText(form, picked, d), b = H.packText();
+    const a = E.packText(form, picked, d), b0 = H.packText();
+    assert.ok(b0.includes(DEVIATIONS.packHeader[0]), "v16 pack header as documented");
+    const b = b0.replace(DEVIATIONS.packHeader[0], DEVIATIONS.packHeader[1]);
     const cut = (s) => s.slice(0, s.indexOf("FINISHING"));
     assert.equal(cut(a), cut(b), "steps 1-3");
     const grid = (s) => s.slice(s.indexOf("By hand"));

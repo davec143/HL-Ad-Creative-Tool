@@ -284,7 +284,8 @@ export function packText(form, picked, d = new Date()) {
   const src = (picked && picked.url) ? picked.url : "", name = (picked && picked.label) ? picked.label : "";
   const L = [];
   L.push("HITLIGHTS AD BUILDER " + DASH + " PROMPT PACK");
-  L.push("Built " + d.toISOString().slice(0, 10) + " to the Andromeda spec: one image ad, three sizes, one concept.");
+  // (v16 said "to the Andromeda spec"; Andromeda is Meta's ad-retrieval system, not a file spec.)
+  L.push("Built " + d.toISOString().slice(0, 10) + ": one image ad, three placement sizes, one concept.");
   L.push("");
   L.push("HOW TO RUN THIS: paste the whole of this message into a Claude chat that has the Higgsfield");
   L.push("connector, or hand it to someone who does. Work through the three steps in order " + DASH + " step 2");

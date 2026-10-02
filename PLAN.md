@@ -1,25 +1,54 @@
 # HitLights Ad Builder — Standalone App Plan
 
-## Build status (Sept 30, 2026)
+## Current state (Oct 2, 2026; branch `claude/hardening-15a789c`)
 
-| Phase | Status | Notes |
-|---|---|---|
-| 1 Repo foundation | ✅ Done | `legacy/` oracle, manifests, CI workflow, Dockerfile |
-| 2 Brand engine + parity | ✅ Done | 45 parity tests, byte-identical to v16. 35 finishing tests |
-| 3 Integrations | ✅ Built, mocked tests pass | **Live tests blocked:** this dev sandbox's network policy denies Shopify and Higgsfield hosts |
-| 4 Run orchestrator | ✅ Done | Persisted, resumable, never re-pays for a submitted render. Credit caps |
-| 5 UI | ✅ Done | v16 layout. Checked in a headless browser at 360–1280 px |
-| 0 Live Higgsfield check | ⏳ Next | First real render set (6 credits) once the app runs somewhere that can reach Higgsfield |
-| 6 Acceptance matrix | ⏳ | ~90 credits |
-| 7 Deploy | ⏳ | Needs a host choice + `APP_PASSWORD` |
+**Scope:** image ads only. One concept per set at three **placement sizes** (1080×1080, 1080×1920, 1200×628). That is placement coverage, not creative diversity: see `docs/CREATIVE_DIVERSITY.md`. Video is planned only (`VIDEO_PLAN.md`).
 
-**Architecture changes from the plan below (decided during the build):**
+| Area | Implemented | Tested how | Live-tested? |
+|---|---|---|---|
+| Brand engine (prompts, Logo Grid, limits) | ✅ | Byte-for-byte parity with v16 (45 tests; 3 documented deviations: T2 logo black, terminology in the prompt pack, nothing else) | n/a (pure code) |
+| Finishing (crop, colour locks, logo, ≤460 KB) | ✅ `finish.py` unchanged from v16; size enforcement added around it | 42 Python tests on synthetic renders at real 2K sizes | ❌ not on real Higgsfield renders |
+| Paid-render safety (attempt ledger, reservations, ambiguous → decision) | ✅ | 14 crash-injection tests with a fake renderer | ❌ |
+| Higgsfield over MCP + OAuth | ✅ | Mocked client tests; response shapes confirmed once against the real MCP (read-only calls) | ❌ No render, no OAuth sign-in from the app yet |
+| Delivery gates (QA, fidelity, flags, overrides) | ✅ | Unit + pipeline tests with mocked LLM and Drive | ❌ |
+| Text & logo QA / product-fidelity QA | ✅ | Mocked LLM | ❌ No real model call yet (no LLM key configured) |
+| Shopify variants | ✅ Query validated against the Shopify Admin schema | Mocked contract tests | ❌ Not run against the store (sandbox network blocked) |
+| Google Drive delivery + idempotency | ✅ | Mocked Drive tests | ❌ No service account configured |
+| Auth & security (sessions, CSRF, limiter, CSP) | ✅ | HTTP tests | ⚠️ The earlier version is deployed on Railway; this branch isn't yet |
+| Ops (self-check, lock, graceful shutdown, logs, metrics) | ✅ | Tests + local start/stop | ❌ Docker image built only in CI (no Docker daemon in the dev sandbox) |
+
+### Safety guarantees, stated precisely
+- **At-most-once automatic submission, not exactly-once.** Higgsfield exposes no idempotency key.
+  - The app never automatically resubmits a paid render whose outcome is unknown.
+  - Only items Higgsfield explicitly marks `submission_failed` are retried, once.
+  - Unknown outcomes stop the set, keep their credit reservation and wait for a person: adopt a found job, re-render knowingly, or skip.
+  - A crash between Higgsfield accepting a job and the app saving its ID can still leave a charged job the app doesn't know about. It shows up as an *ambiguous* attempt, never as a silent duplicate.
+- **Credit figures are estimates** (`CREDITS_PER_RENDER`, default 2). Higgsfield doesn't report per-job cost to the app.
+- **Nothing is delivered automatically unless** every check explicitly passed: finished file, exact size, ≤460 KB, no blocking flag, text & logo QA pass and product-fidelity pass. Manual overrides and fidelity approvals are recorded.
+- **The product-fidelity check is a vision model's judgement, not a guarantee.** "Uncertain" requires a person.
+
+### Deployment requirements
+- **One replica, with a persistent volume at `/data`.** Enforced by a lock file: a second live instance refuses to start.
+- **Production refuses to start without** `APP_PASSWORD` (≥10 characters), `SESSION_SECRET` (≥32 characters) and an https public URL.
+
+### Next
+1. Deploy this branch to Railway: new variables and the volume, per README.
+2. Sign in to Higgsfield from the app, then **one approved 6-credit test set**.
+3. Add an LLM key (QA and fidelity are required for auto-delivery).
+4. Run the acceptance matrix (about 90 credits, approval needed).
+
+Design records: `docs/adr/0001` deterministic brand composition · `0002` Google SSO · `0003` product cutouts.
+
+---
+
+## Original plan (Sept 30, 2026, kept for history)
+
+**Architecture changes from the original plan (decided during the build):**
 - **Server is Node, not FastAPI.** The page's engine (prompts, limits) is shared verbatim between browser and server, and finishing still runs v16's Python `finish.py` unchanged, as a subprocess. This carries less porting risk than rewriting the JS prompts in Python.
-- **Higgsfield via its official MCP server + one-time OAuth sign-in**, not the key-based Cloud API. The Cloud API bills a separate prepaid dollar balance, and Nano Banana Pro availability there is unconfirmed. The MCP path is exactly what v16 used: the same tools, model and subscription credits. `HIGGSFIELD_API_KEY` is kept in config for a later switch.
-- **LLM is provider-agnostic.** Choices: `anthropic` (defaults `claude-haiku-4-5` for drafting at $1/$5 per MTok, `claude-sonnet-5-5` for the vision spelling check at $2/$10), `openai-compatible` (OpenAI / Gemini / OpenRouter), or `none`. At these prompt sizes a full set costs roughly 1–2¢ of LLM usage.
-- **Logos** come from the template library (byte-identical to v16's display copies; same rendered logo height at every ad size), committed in `assets/logos/`.
+- **Higgsfield via its official MCP server + one-time OAuth sign-in**, not the key-based Cloud API. The Cloud API bills a separate prepaid dollar balance, and Nano Banana Pro availability there is unconfirmed. The MCP path is exactly what v16 used: the same tools, model and subscription credits.
+- **LLM is provider-agnostic:** `anthropic` (defaults `claude-haiku-4-5` for drafting, `claude-sonnet-5-5` for vision checks), `openai-compatible`, or `none`.
+- **Logos** come from the template library (byte-identical to v16's display copies), committed in `assets/logos/` with hashes.
 
-**Status:** Plan only. Nothing is built yet.
 **Goal:** Rebuild the HitLights Ad Builder (kit v16) as a standalone web app that doesn't depend on a Claude account, artifact runtime or connectors. It must produce the same output as v16 (same prompts, Logo Grid, finishing and QA), with Higgsfield as the renderer. It should be more stable than v16.
 **Baseline:** `hitlights-ad-builder-rebuild-kit.zip` (builder v16, Sept 25 2026). This is the version that "works great".
 **Delta source:** `ad-builder.html` + `REBUILD-INSTRUCTIONS.md` (the Sept 30 pack).

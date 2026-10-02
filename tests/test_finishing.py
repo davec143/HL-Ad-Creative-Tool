@@ -41,7 +41,7 @@ def finish(tmp_path, tpl, kind, fault=None, spec_override=None):
     r = subprocess.run([sys.executable, PROCESS, str(src), str(out), str(S["W"]), str(S["H"]), json.dumps(spec)],
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
-    report = r.stdout.strip()
+    report = r.stdout.strip().splitlines()[0]
     flags = report.split("| FLAGS ", 1)[1].split() if "| FLAGS " in report else []
     return out, report, flags, S
 
@@ -135,3 +135,73 @@ def test_crop_geometry_matches_imagemagick_cover():
     assert np.asarray(out)[0, 600, 0] < 200  # the band's top ~21px were trimmed away
     for (w, h), (W, H) in [((2048, 2048), (1080, 1080)), ((1536, 2752), (1080, 1920)), ((2752, 1536), (1200, 628)), ((1000, 1000), (1080, 1920))]:
         assert cover_crop(Image.new("RGB", (w, h)), W, H).size == (W, H)
+
+
+# ---------- delivery contract: exact size, decodes, <= 460,000 bytes (Phase 3) ----------
+import hashlib  # noqa: E402
+
+MAX_BYTES = 460000
+SPEC_PT = {"x": 64, "y": 288, "w": 320, "colour": "white", "shadow": False, "ground": "panel", "even": False, "field": "-", "safeTop": 269}
+
+
+def run_process(tmp_path, img, W, H, spec):
+    src, out = tmp_path / "in.png", tmp_path / "out.jpg"
+    img.save(src)
+    r = subprocess.run([sys.executable, PROCESS, str(src), str(out), str(W), str(H), json.dumps(spec)], capture_output=True, text=True, timeout=180)
+    res = None
+    for line in r.stdout.splitlines():
+        if line.startswith("RESULT "):
+            res = json.loads(line[7:])
+    return r, res, out
+
+
+def noise(W, H, amp, seed=3):
+    rng = np.random.default_rng(seed)
+    return Image.fromarray(np.clip(np.full((H, W, 3), 110, np.float32) + rng.normal(0, amp, (H, W, 3)), 0, 255).astype(np.uint8))
+
+
+def test_finish_py_is_byte_identical_to_v16():
+    a = open(os.path.join(ROOT, "finishing", "finish.py"), "rb").read()
+    b = open(os.path.join(ROOT, "legacy", "v16", "source", "finish.py"), "rb").read()
+    assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest()
+    assert hashlib.sha256(a).hexdigest() == open(os.path.join(ROOT, "finishing", "FINISH_PY_SHA256")).read().split()[0]
+
+
+def test_detailed_image_over_the_limit_is_reencoded_under_it(tmp_path):
+    r, res, out = run_process(tmp_path, noise(1080, 1920, 35), 1080, 1920, SPEC_PT)
+    assert r.returncode == 0, r.stderr
+    assert res["ok"] is True and res["reencoded"] is True and res["quality"] >= 40
+    assert os.path.getsize(out) <= MAX_BYTES == 460000
+    with Image.open(out) as im:
+        assert im.size == (1080, 1920) and im.format == "JPEG" and im.mode == "RGB"
+        im.load()
+
+
+def test_high_entropy_image_fails_explicitly_instead_of_reporting_success(tmp_path):
+    r, res, out = run_process(tmp_path, noise(1080, 1920, 90), 1080, 1920, SPEC_PT)
+    assert r.returncode == 0
+    if res["ok"]:
+        assert os.path.getsize(out) <= MAX_BYTES
+    else:
+        assert "460000" in res["error"] and res["bytes"] > MAX_BYTES
+
+
+@pytest.mark.parametrize("W,H", [(1080, 1080), (1080, 1920), (1200, 628)])
+def test_every_target_size_stays_exact_and_decodes(tmp_path, W, H):
+    spec = dict(SPEC_PT, safeTop=None) if (W, H) != (1080, 1920) else SPEC_PT
+    spec = {k: v for k, v in spec.items() if v is not None}
+    r, res, out = run_process(tmp_path, noise(W * 2, H * 2, 25), W, H, spec)
+    assert res["ok"] is True, res
+    assert (res["width"], res["height"]) == (W, H) and res["bytes"] <= MAX_BYTES
+    with Image.open(out) as im:
+        im.load()
+        assert im.size == (W, H)
+
+
+def test_corrupt_input_fails_cleanly(tmp_path):
+    src, out = tmp_path / "bad.png", tmp_path / "out.jpg"
+    src.write_bytes(b"\x89PNG\r\n\x1a\nthis is not an image")
+    r = subprocess.run([sys.executable, PROCESS, str(src), str(out), "1080", "1080", json.dumps(SPEC_PT)], capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0
+    assert not out.exists()
+    assert "RESULT" not in r.stdout

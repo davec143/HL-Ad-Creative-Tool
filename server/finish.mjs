@@ -31,7 +31,8 @@ export async function fetchRender(url, dest, { dataDir, fetchImpl = fetch, timeo
 
 // Parse finish.py's one-line report: "<colour> logo at (x,y) wN | notes | ground .. edges .. | FLAGS A B".
 export function parseReport(report) {
-  const line = String(report || "").trim().split("\n").pop() || "";
+  const lines = String(report || "").trim().split("\n").filter((l) => !l.startsWith("RESULT "));
+  const line = lines.pop() || "";
   const m = line.match(/^(\w+) logo at \((\d+),(\d+)\) w(\d+)/);
   const fl = line.match(/\| FLAGS (.*)$/);
   return {
@@ -68,10 +69,18 @@ export function validateOutput(file, W, H) {
   return { ok: true, width: W, height: H, bytes: buf.length };
 }
 
+// Structured result from process.py's "RESULT {...}" line.
+export function parseResult(stdout) {
+  const line = String(stdout || "").split("\n").find((l) => l.startsWith("RESULT "));
+  if (!line) return null;
+  try { return JSON.parse(line.slice(7)); } catch { return null; }
+}
+
 export async function finishOne({ python, src, out, W, H, logo }) {
   const { stdout } = await runPython(python, PROCESS, [src, out, W, H, JSON.stringify(finishSpec(logo))], { timeoutMs: 180000 });
   const r = parseReport(stdout);
-  if (r.x == null) throw new Error("Finishing produced no report: " + stdout.slice(0, 200));
+  if (r.x == null) throw new Error("Finishing produced no report.");
   if (!fs.existsSync(out)) throw new Error("Finishing produced no file.");
+  r.result = parseResult(stdout) || { ok: false, error: "finishing returned no result" };
   return r;
 }

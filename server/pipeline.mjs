@@ -350,7 +350,9 @@ export class Pipeline {
     const r = await finishOne({ python: this.cfg.python, src, out, W: x.W, H: x.H, logo: x.logo });
     try { fs.unlinkSync(src); } catch { /* ignore */ }
     x.file = path.basename(out); x.mode = r.mode; x.flags = r.flags; x.at = { x: r.x, y: r.y, w: r.w, colour: r.colour };
-    x.output = validateOutput(out, x.W, x.H);
+    // Both checks must agree: process.py's (decodes, re-encodes if over 460 KB) and an independent one.
+    const v = validateOutput(out, x.W, x.H), pr = r.result || {};
+    x.output = pr.ok && v.ok ? { ...v, quality: pr.quality || null, reencoded: !!pr.reencoded } : { ok: false, error: pr.error || v.error || "output check failed", bytes: v.bytes, width: v.width, height: v.height };
     x.state = "done"; x.qa = null; x.fidelity = null; x.drive = null; x.held = false; x.override = null;
     if (!x.output.ok) this.log(run, "  " + x.dims + " — output check failed: " + x.output.error, "err");
     this.log(run, "  " + x.dims + " — " + r.mode.replace(/\s*\|\s*FLAGS.*$/, ""), r.flags.length ? "err" : "run");

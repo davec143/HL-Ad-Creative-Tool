@@ -118,7 +118,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (!t.ok) throw new HttpError(429, "Too many sign-in attempts. Try again in " + Math.ceil(t.retryAfter / 60) + " min.", "rate_limited");
       const b = await body(req);
       const a = crypto.createHash("sha256").update(String(b.password || "")).digest(), p = crypto.createHash("sha256").update(cfg.appPassword).digest();
-      if (!crypto.timingSafeEqual(a, p)) { await new Promise((r) => setTimeout(r, 400)); throw new HttpError(401, "Wrong password."); }
+      if (!crypto.timingSafeEqual(a, p)) { await new Promise((r) => setTimeout(r, 400)); throw new HttpError(401, "Wrong password.", "bad_password"); }
       limiter.success(who);
       const s = sessions.create();
       send(res, 200, { ok: true, expires: s.exp }, { "Set-Cookie": `${sessionName}=${encodeURIComponent(s.token)}${cookieAttrs(Math.floor((s.exp - Date.now()) / 1000))}` });

@@ -93,9 +93,11 @@ test("malformed cookies are a 401, never a 500", async () => {
 test("brute-force limiter: parallel guesses can't exceed the limit; a later correct password is refused too", async () => {
   const a = await boot();
   try {
-    const rs = await Promise.all(Array.from({ length: 12 }, () => a.login("wrong")));
+    const one = await a.login("wrong");
+    assert.equal(one.r.status, 401); assert.equal(one.r.json.code, "bad_password", "page shows 'Wrong password', not the sign-in prompt");
+    const rs = await Promise.all(Array.from({ length: 11 }, () => a.login("wrong")));
     const codes = rs.map((x) => x.r.status);
-    assert.equal(codes.filter((c) => c === 401).length, 8);
+    assert.equal(codes.filter((c) => c === 401).length, 7, "8 attempts allowed in total");
     assert.equal(codes.filter((c) => c === 429).length, 4);
     assert.equal((await a.login()).r.status, 429, "locked out for the window");
   } finally { await a.close(); }

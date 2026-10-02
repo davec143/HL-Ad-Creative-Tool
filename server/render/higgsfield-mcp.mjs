@@ -8,8 +8,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 
+// sent: false  = the request provably never left this server (connect/sign-in failed first).
+// sent: true   = it may have reached Higgsfield; the outcome is unknown.
 export class RenderError extends Error {
-  constructor(code, message) { super(message); this.code = code; }
+  constructor(code, message, { sent } = {}) { super(message); this.code = code; if (sent !== undefined) this.sent = sent; }
 }
 
 // OAuth client provider that persists everything in the app's state store.
@@ -53,6 +55,13 @@ export class HiggsfieldMcpRenderer {
     this.name = "Higgsfield";
   }
 
+  // Close a client/transport that is being replaced, so reconnects don't leak sessions.
+  async dropClient() {
+    const c = this.client; this.client = null;
+    if (c) { try { await c.close(); } catch { /* already gone */ } }
+  }
+  async close() { await this.dropClient(); this.transport = null; }
+
   async connect() {
     if (this.client) return this.client;
     if (this.connecting) return this.connecting;
@@ -89,23 +98,28 @@ export class HiggsfieldMcpRenderer {
     this.store.delState("hf-oauth-state");
     const transport = this.transport || new StreamableHTTPClientTransport(this.url, { authProvider: this.provider });
     await transport.finishAuth(code);
-    this.client = null; this.transport = null; this.provider.pendingAuthUrl = null;
+    await this.dropClient(); this.transport = null; this.provider.pendingAuthUrl = null;
     await this.connect();
   }
 
-  async call(tool, args) {
+  // Call a tool. Read-only tools (balance, jobs_wait, history) may be retried once after a dropped
+  // session. Paid tools (generate_image_batch) are NEVER retried here: a request that may have
+  // reached Higgsfield is reported with sent:true so the pipeline can treat it as ambiguous.
+  async call(tool, args, { retry = true, timeoutMs = 120000 } = {}) {
     for (let attempt = 0; ; attempt++) {
-      const client = await this.connect();
+      let client;
+      try { client = await this.connect(); }
+      catch (e) { e.sent = false; throw e; } // never left this server
       try {
-        return payloadOf(await client.callTool({ name: tool, arguments: args }, undefined, { timeout: 120000 }));
+        return payloadOf(await client.callTool({ name: tool, arguments: args }, undefined, { timeout: timeoutMs }));
       } catch (e) {
-        if (e instanceof RenderError) throw e;
-        // Dropped session or expired token: reconnect once, then report.
-        this.client = null;
-        if (attempt >= 1) {
-          if (e instanceof UnauthorizedError) throw new RenderError("needs_auth", "Higgsfield sign-in expired. Sign in again.");
-          throw new RenderError("server_unavailable", "Higgsfield didn't answer: " + (e && e.message || e));
-        }
+        // The tool answered with an error result (e.g. insufficient credits): an explicit rejection.
+        if (e instanceof RenderError) { e.sent = true; e.rejected = true; throw e; }
+        await this.dropClient();
+        // 401: refused by sign-in before the tool ran, so no job can exist.
+        if (e instanceof UnauthorizedError) throw new RenderError("needs_auth", "Higgsfield sign-in expired. Sign in again.", { sent: false });
+        // Anything else (timeout, dropped connection): the request may have been processed.
+        if (!retry || attempt >= 1) throw new RenderError("server_unavailable", "Higgsfield didn't answer: " + (e && e.message || e), { sent: true });
       }
     }
   }
@@ -121,24 +135,25 @@ export class HiggsfieldMcpRenderer {
     return p.media_id;
   }
 
-  // Submit a batch and keep only the items that really became jobs. Higgsfield can reject a single
-  // item (e.g. a momentary 503) while accepting the rest; those items get one retry (as v16).
+  // Send ONE generate_image_batch request and return what Higgsfield said, unmodified:
+  //   {jobs: [{index, job_id?, status}], raw}. No retries here: the pipeline decides, per item,
+  //   what is accepted, explicitly rejected (status "submission_failed") or ambiguous.
   async submit(requests) {
-    const send = async (reqs) => {
-      // Only {index, params} go to Higgsfield: its schema rejects any other field (e.g. our meta).
-      const p = await this.call("generate_image_batch", { requests: reqs.map((q) => ({ index: q.index, params: q.params })) });
-      const ok = (p.jobs || []).filter((j) => j && j.job_id && j.status !== "submission_failed");
-      return { ok, p };
-    };
-    const a = await send(requests);
-    const got = new Set(a.ok.map((j) => j.index));
-    const missing = requests.filter((q) => !got.has(q.index));
-    if (!missing.length) return a.ok;
-    await this.sleep(5000);
-    const b = await send(missing);
-    const all = a.ok.concat(b.ok);
-    if (!all.length) throw new RenderError("tool_error", "No render job was created. " + jobProblem(b.p));
-    return all;
+    // Only {index, params} go to Higgsfield: its schema rejects any other field (e.g. our meta).
+    const p = await this.call("generate_image_batch", { requests: requests.map((q) => ({ index: q.index, params: q.params })) }, { retry: false });
+    return { jobs: Array.isArray(p.jobs) ? p.jobs : [], raw: { unlim_choice: !!p.unlim_choice, problem: jobProblem(p) } };
+  }
+
+  // Best-effort reconciliation for an ambiguous submission: look in the account's generation
+  // history for a job with the same prompt and aspect ratio created after the attempt started.
+  // show_generations lists COMPLETED generations only, so "no match" is not proof that nothing was
+  // charged; a job still rendering won't appear yet. The person decides.
+  async findCandidates(attempt) {
+    const p = await this.call("show_generations", { type: "image", size: 40 });
+    const since = (attempt.submittedAt || attempt.preparedAt || 0) / 1000 - 120;
+    return (p.items || [])
+      .filter((g) => g && g.params && g.params.prompt === attempt.params.prompt && String(g.params.aspect_ratio) === String(attempt.params.aspect_ratio) && (g.createdAt || 0) >= since)
+      .map((g) => ({ jobId: g.id, createdAt: Math.round((g.createdAt || 0) * 1000), model: g.model, status: g.status || "completed" }));
   }
 
   // Long-poll until every job is terminal (about 7 minutes at most).

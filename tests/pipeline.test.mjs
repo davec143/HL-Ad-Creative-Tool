@@ -92,7 +92,9 @@ test("crash while waiting: resume waits for the paid job instead of paying again
   let r = store.getRun(run.id);
   assert.equal(r.status, "failed");
   assert.equal(r.error.code, "timeout");
-  assert.ok(r.items.filter((x) => x.pending).length === 2, "portrait + landscape jobs kept");
+  const kept = r.items.filter((x) => x.attemptId).map((x) => r.attempts.find((a) => a.id === x.attemptId));
+  assert.equal(kept.length, 2, "portrait + landscape attempts kept");
+  assert.ok(kept.every((a) => a.state === "waiting" && a.jobId), "with their job ids");
   assert.equal(submits, 3);
   pipeline.resume(run.id);
   await settle(pipeline);

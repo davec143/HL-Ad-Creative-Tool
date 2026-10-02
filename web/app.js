@@ -223,10 +223,12 @@ function paintRun(r, busy) {
   // run-level buttons
   const rb = $("runbtns"); rb.innerHTML = ""; rb.hidden = false;
   const working = ["queued", "running"].includes(r.status) || busy === r.id;
-  if (!working && (r.status === "failed" || r.status === "partial")) { const b = el("button", "btn-quiet regen", "Resume this set"); b.type = "button"; b.onclick = () => act("resume"); rb.appendChild(b); }
+  if (!working && (r.status === "failed" || r.status === "partial") && !r.attempts.some((a) => a.state === "ambiguous")) { const b = el("button", "btn-quiet regen", "Resume this set"); b.type = "button"; b.onclick = () => act("resume"); rb.appendChild(b); }
   if (r.items.some((x) => x.file)) { const a = el("a", "btn-quiet", "Download all (.zip)"); a.href = "/api/runs/" + r.id + "/zip"; a.style.textDecoration = "none"; rb.appendChild(a); }
   if (!working && r.items.some((x) => x.rawUrl)) { const b = el("button", "btn-quiet regen", "Finish these renders again (0 credits)"); b.type = "button"; b.onclick = () => act("refinish"); rb.appendChild(b); }
-  rb.appendChild(el("span", "hint", r.folder + " · " + r.credits + " credits"));
+  const cd = r.creditsDetail;
+  rb.appendChild(el("span", "hint", r.folder + " · ~" + r.credits + " credits" + (cd && cd.reserved ? " (" + cd.reserved + " reserved, unconfirmed)" : "") + " (estimate)"));
+  if (r.status === "needs_decision") fail("This set needs a decision", "A paid render's outcome is unknown. Use the buttons on that size below; nothing is resubmitted until you choose.");
   // side-by-side strip
   const side = $("side"); side.innerHTML = "";
   const done = r.items.filter((x) => x.file);
@@ -248,7 +250,8 @@ function card(r, x, working) {
   const c = el("div", "outcard");
   c.appendChild(el("b", null, x.title + " — " + x.dims.replace("x", " × ") + (x.version > 1 ? " · v" + x.version : "")));
   const st = { waiting: "Waiting for the square master…", rendering: "Rendering…", rendered: "Rendered. Finishing comes next.", finishing: "Finishing: exact size, brand colour, logo…", failed: "This size didn't finish. " + (x.error || "See the status log.") }[x.state];
-  if (x.state === "done") {
+  if (x.state === "ambiguous" && x.attemptId) c.appendChild(decisionPanel(r, x, working));
+  else if (x.state === "done") {
     const at = x.at ? x.at.x + "," + x.at.y : x.grid.x + "," + x.grid.y;
     const clean = !x.flags.filter((f) => f !== "TEXT").length;
     c.appendChild(el("span", "dim", "Exact size · logo on the Logo Grid at (" + at + ")" + (x.at ? " · " + x.at.colour + " lockup" : "") + (clean ? "" : " · check the notes below")));
@@ -282,6 +285,47 @@ function card(r, x, working) {
   if (x.rawUrl) { const a = el("a", "hint", "raw render ↗"); a.href = x.rawUrl; a.target = "_blank"; a.rel = "noopener noreferrer"; row.appendChild(a); }
   if (row.childNodes.length) c.appendChild(row);
   return c;
+}
+
+// ---------- unconfirmed paid submissions: a person decides ----------
+function decisionPanel(r, x, working) {
+  const box = el("div", "err");
+  box.appendChild(el("b", null, "Unconfirmed render — nothing was resubmitted"));
+  box.appendChild(el("p", null, (x.error || "The request may or may not have reached Higgsfield.") + " Its credits stay reserved until you decide."));
+  const row = el("div", "rowbtn"), out = el("div");
+  const resolve = async (body) => {
+    try { const { run } = await api("/api/runs/" + r.id + "/attempts/" + x.attemptId + "/resolve", { method: "POST", body }); paintRun(run); poll(); }
+    catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
+  };
+  const look = el("button", "btn-quiet", "Look for the job in Higgsfield"); look.type = "button"; look.disabled = working;
+  look.onclick = async () => {
+    out.textContent = "Searching recent Higgsfield generations…";
+    try {
+      const { supported, candidates } = await api("/api/runs/" + r.id + "/attempts/" + x.attemptId + "/candidates");
+      out.innerHTML = "";
+      if (!supported) { out.textContent = "This renderer can't search its history. Check Higgsfield yourself."; return; }
+      if (!candidates.length) { out.textContent = "No finished matching job yet. One still rendering wouldn't show — try again in a few minutes before re-rendering."; return; }
+      for (const cnd of candidates) {
+        const b = el("button", "btn-quiet", "Use job " + cnd.jobId.slice(0, 8) + "… (" + new Date(cnd.createdAt).toLocaleTimeString() + ")"); b.type = "button";
+        b.onclick = () => resolve({ action: "adopt", jobId: cnd.jobId });
+        out.appendChild(b);
+      }
+    } catch (e) { out.textContent = e.message; }
+  };
+  const retry = el("button", "btn-quiet", "Re-render (may charge twice)"); retry.type = "button"; retry.disabled = working;
+  retry.onclick = () => {
+    if (!confirm("Re-render the " + x.dims + "? If Higgsfield did accept the first request, you pay for both.")) return;
+    const charged = confirm("Count the unconfirmed request as charged? OK = yes (safer for the caps), Cancel = no (only if you checked Higgsfield and it isn't there).");
+    resolve({ action: "retry", charged, confirm: true });
+  };
+  const skip = el("button", "btn-quiet", "Skip this size"); skip.type = "button"; skip.disabled = working;
+  skip.onclick = () => {
+    if (!confirm("Skip the " + x.dims + " for this set?")) return;
+    const charged = confirm("Count the unconfirmed request as charged? OK = yes, Cancel = no (only if you checked Higgsfield).");
+    resolve({ action: "skip", charged, confirm: true });
+  };
+  row.append(look, retry, skip); box.append(row, out);
+  return box;
 }
 
 // ---------- recent sets ----------

@@ -53,9 +53,10 @@ export function publicRun(r) {
   return {
     id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo,
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
-    driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
+    driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
+    attempts: (r.attempts || []).map((a) => ({ id: a.id, kind: a.kind, version: a.version, purpose: a.purpose, state: a.state, jobId: a.jobId, error: a.error, submittedAt: a.submittedAt, resolution: a.resolution || null, retryOf: a.retryOf })),
     items: r.items.map((x) => ({
-      kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error,
+      kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error, attemptId: x.attemptId || null,
       flags: x.flags, blocking: blockingFlags(x), mode: x.mode, at: x.at || null, grid: { x: x.logo.x, y: x.logo.y, where: x.logo.where },
       qa: x.qa, held: x.held, drive: x.drive, rawUrl: /^https:/.test(x.url || "") ? x.url : null,
       file: x.file ? `/api/runs/${r.id}/files/${x.file}` : null, fileName: fileName(x),
@@ -88,6 +89,12 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     let ok = false; try { const u = new URL(url); ok = u.protocol === "https:"; } catch { ok = false; }
     return { url: ok ? url : "", title: String(p.title || "").slice(0, 200), label: String(p.label || p.title || "").slice(0, 200), desc: String(p.desc || "").slice(0, 4000), outOfStock: !!p.outOfStock };
   }
+  function pipelineHttp(e) {
+    if (!(e instanceof PipelineError)) return e;
+    const status = { already_queued: 409, ambiguous: 409, busy: 409, shutting_down: 503, not_found: 404 }[e.code] || 400;
+    return new HttpError(status, e.message, e.code);
+  }
+  function actorOf() { return "team"; } // single shared password: no per-person identity yet
   function runOr404(id) { const r = store.getRun(id); if (!r) throw new HttpError(404, "No such set."); return r; }
 
   const routes = [
@@ -140,6 +147,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       const bad = validateForGenerate(form, { hasImage: !!picked.url });
       if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
       if (pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
+      if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
       const need = 3 * cfg.creditsPerRender;
       const st = await renderer.status();
       if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first (see the banner at the top).", "needs_auth");
@@ -165,7 +173,22 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
         else if (action === "recheck") r = pipeline.recheck(id, kind);
         else r = pipeline.saveToDrive(id, kind, !!b.force);
         send(res, 202, { run: publicRun(r) });
-      } catch (e) { if (e instanceof PipelineError) throw new HttpError(400, e.message, e.code); throw e; }
+      } catch (e) { throw pipelineHttp(e); }
+    }],
+
+    ["GET", /^\/api\/runs\/([a-z0-9]+)\/attempts\/([a-z0-9]+)\/candidates$/, async (req, res, m) => {
+      runOr404(m[1]);
+      try { send(res, 200, await pipeline.candidates(m[1], m[2])); }
+      catch (e) { if (e instanceof PipelineError) throw pipelineHttp(e); throw new HttpError(502, "Couldn't search Higgsfield's history: " + e.message); }
+    }],
+
+    // A person's decision on an ambiguous paid submission. Recorded on the attempt.
+    ["POST", /^\/api\/runs\/([a-z0-9]+)\/attempts\/([a-z0-9]+)\/resolve$/, async (req, res, m) => {
+      const b = await body(req); runOr404(m[1]);
+      if (!["adopt", "retry", "skip"].includes(b.action)) throw new HttpError(400, "Choose adopt, retry or skip.");
+      if (b.action !== "adopt" && b.confirm !== true) throw new HttpError(400, "Confirm the decision first.", "confirm");
+      try { send(res, 202, { run: publicRun(pipeline.resolve(m[1], m[2], { action: b.action, jobId: b.jobId, charged: !!b.charged, actor: actorOf(req) })) }); }
+      catch (e) { throw pipelineHttp(e); }
     }],
 
     ["GET", /^\/api\/runs\/([a-z0-9]+)\/files\/([A-Za-z0-9._-]+)$/, async (req, res, m, url) => {

@@ -160,22 +160,50 @@ function mcpRenderer(responses) {
   return r;
 }
 
-test("higgsfield: submit keeps accepted jobs and retries only the rejected item once", async () => {
-  let n = 0;
-  const r = mcpRenderer({ generate_image_batch: (args) => {
-    n++;
-    if (n === 1) return { jobs: [{ index: 2, job_id: "a", status: "queued" }, { index: 3, status: "submission_failed" }] };
-    return { jobs: args.requests.map((q) => ({ index: q.index, job_id: "b" + q.index, status: "queued" })) };
-  } });
-  const jobs = await r.submit([{ index: 2, params: {} }, { index: 3, params: {} }]);
-  assert.deepEqual(jobs.map((j) => j.job_id).sort(), ["a", "b3"]);
-  assert.equal(r.calls[1].args.requests.length, 1);
-  assert.equal(r.calls[1].args.requests[0].index, 3);
+test("higgsfield: submit sends exactly once and returns the raw per-item answer (no internal retry)", async () => {
+  const r = mcpRenderer({ generate_image_batch: () => ({ jobs: [{ index: 2, job_id: "a", status: "queued" }, { index: 3, status: "submission_failed" }] }) });
+  const res = await r.submit([{ index: 2, params: {} }, { index: 3, params: {} }]);
+  assert.equal(r.calls.length, 1);
+  assert.deepEqual(res.jobs.map((j) => j.status), ["queued", "submission_failed"]);
 });
 
-test("higgsfield: nothing accepted at all is an error that names the problem", async () => {
+test("higgsfield: call() never re-sends a paid tool after a dropped connection; read-only tools retry once", async () => {
+  const store = { getState() {}, setState() {}, delState() {} };
+  const r = new HiggsfieldMcpRenderer({ store, url: "https://mcp.example/mcp", publicUrl: "http://localhost" });
+  let sends = 0, closed = 0;
+  r.connect = async () => ({ callTool: async () => { sends++; throw new Error("socket hang up"); }, close: async () => { closed++; } });
+  r.client = await r.connect();
+  await assert.rejects(r.call("generate_image_batch", { requests: [] }, { retry: false }), (e) => e.sent === true && e.code === "server_unavailable");
+  assert.equal(sends, 1, "paid call sent once");
+  sends = 0;
+  await assert.rejects(r.call("balance", {}), (e) => e.sent === true);
+  assert.equal(sends, 2, "read-only call retried once");
+  r.connect = async () => { throw Object.assign(new Error("Sign in"), { code: "needs_auth" }); };
+  await assert.rejects(r.call("generate_image_batch", {}, { retry: false }), (e) => e.sent === false);
+});
+
+test("higgsfield: an isError tool result is an explicit rejection", async () => {
+  const store = { getState() {}, setState() {}, delState() {} };
+  const r = new HiggsfieldMcpRenderer({ store, url: "https://mcp.example/mcp", publicUrl: "http://localhost" });
+  r.connect = async () => ({ callTool: async () => ({ isError: true, content: [{ type: "text", text: "Insufficient credits" }] }) });
+  await assert.rejects(r.call("generate_image_batch", {}, { retry: false }), (e) => e.rejected === true && /Insufficient/.test(e.message));
+});
+
+test("higgsfield: findCandidates matches prompt + ratio after the attempt started", async () => {
+  const now = Date.now() / 1000;
+  const r = mcpRenderer({ show_generations: { items: [
+    { id: "11111111-1111-4111-8111-111111111111", params: { prompt: "P", aspect_ratio: "9:16" }, createdAt: now },
+    { id: "22222222-2222-4222-8222-222222222222", params: { prompt: "P", aspect_ratio: "16:9" }, createdAt: now },
+    { id: "33333333-3333-4333-8333-333333333333", params: { prompt: "P", aspect_ratio: "9:16" }, createdAt: now - 3600 },
+  ] } });
+  const c = await r.findCandidates({ params: { prompt: "P", aspect_ratio: "9:16" }, submittedAt: Date.now() });
+  assert.deepEqual(c.map((x) => x.jobId), ["11111111-1111-4111-8111-111111111111"]);
+});
+
+test("higgsfield: nothing accepted is returned as-is for the pipeline to classify", async () => {
   const r = mcpRenderer({ generate_image_batch: { jobs: [], unlim_choice: { q: "?" } } });
-  await assert.rejects(r.submit([{ index: 1, params: {} }]), /always uses credits/);
+  const res = await r.submit([{ index: 1, params: {} }]);
+  assert.deepEqual(res.jobs, []); assert.equal(res.raw.unlim_choice, true);
 });
 
 test("higgsfield: requests are sent without the internal meta field", async () => {

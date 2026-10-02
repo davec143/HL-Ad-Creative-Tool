@@ -17,9 +17,12 @@ export class Store {
   static newId() { return "r" + Date.now().toString(36) + crypto.randomBytes(3).toString("hex"); }
   static validId(id) { return typeof id === "string" && /^[a-z0-9]{6,40}$/.test(id); }
 
+  // Write to a temp file, fsync it, then rename over the target: a crash leaves either the old or
+  // the new document, never a torn one. (Single replica only: there is no cross-process locking.)
   writeJson(file, obj) {
     const tmp = file + "." + process.pid + "." + crypto.randomBytes(4).toString("hex") + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(obj, null, 1));
+    const fd = fs.openSync(tmp, "w", 0o600);
+    try { fs.writeSync(fd, JSON.stringify(obj, null, 1)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
   }
   readJson(file, fallback = null) {
@@ -53,12 +56,32 @@ export class Store {
   }
   delState(key) { try { fs.unlinkSync(path.join(this.stateDir, key + ".json")); } catch { /* absent */ } }
 
-  // Credits spent per day (UTC), for the daily cap.
-  addCredits(n) {
-    const day = new Date().toISOString().slice(0, 10);
-    const led = this.getState("credits", {});
-    led[day] = (led[day] || 0) + n;
-    this.setState("credits", led);
+  // ---- credit ledger ----
+  // One entry per paid render attempt: {runId, day, amount, state, at}. state is
+  //   reserved  written BEFORE the request leaves; kept while the outcome is unknown (ambiguous)
+  //   spent     Higgsfield accepted the job (an estimate: CREDITS_PER_RENDER, not provider-reported)
+  //   released  the request provably never created a job (never sent, or explicitly rejected)
+  // Caps count reserved + spent, so an ambiguous attempt keeps blocking spend until it is resolved.
+  static today() { return new Date().toISOString().slice(0, 10); }
+  ledger() { return this.getState("ledger", { entries: {} }); }
+  ledgerSet(attemptId, patch) {
+    const led = this.ledger();
+    const cur = led.entries[attemptId] || {};
+    led.entries[attemptId] = { ...cur, ...patch, at: Date.now() };
+    this.setState("ledger", led);
+    return led.entries[attemptId];
   }
-  creditsToday() { return (this.getState("credits", {}))[new Date().toISOString().slice(0, 10)] || 0; }
+  reserve(attemptId, runId, amount) { return this.ledgerSet(attemptId, { runId, amount, day: Store.today(), state: "reserved" }); }
+  markSpent(attemptId) { return this.ledgerSet(attemptId, { state: "spent" }); }
+  release(attemptId) { return this.ledgerSet(attemptId, { state: "released" }); }
+  creditTotals(filter) {
+    const t = { reserved: 0, spent: 0, released: 0 };
+    for (const e of Object.values(this.ledger().entries)) if (filter(e)) t[e.state] = (t[e.state] || 0) + e.amount;
+    t.committed = t.reserved + t.spent;
+    return t;
+  }
+  creditsForDay(day = Store.today()) { return this.creditTotals((e) => e.day === day); }
+  creditsForRun(runId) { return this.creditTotals((e) => e.runId === runId); }
+  // Backwards-compatible: reserved + spent today.
+  creditsToday() { return this.creditsForDay().committed; }
 }

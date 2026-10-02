@@ -45,6 +45,16 @@ export class Drive {
     if (!res.ok) throw new Error("Drive returned HTTP " + res.status + ": " + (await res.text()).slice(0, 200));
     return res.json();
   }
+  // Look up an existing file/folder by exact name under a parent (lookup-before-create, and
+  // reconciling an upload whose outcome is unknown after a crash).
+  async findByName(parentId, name, folder = false, { createdAfter } = {}) {
+    const q = [`name = '${String(name).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`, `'${parentId}' in parents`, "trashed = false", folder ? "mimeType = 'application/vnd.google-apps.folder'" : "mimeType != 'application/vnd.google-apps.folder'"]
+      .concat(createdAfter ? [`createdTime > '${new Date(createdAfter).toISOString()}'`] : []).join(" and ");
+    const j = await this.api(API + "?supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=2&fields=files(id,webViewLink)&q=" + encodeURIComponent(q), { method: "GET" });
+    const f = (j.files || [])[0];
+    return f ? { id: f.id, url: f.webViewLink || (folder ? "https://drive.google.com/drive/folders/" + f.id : "") } : null;
+  }
+
   async createFolder(name) {
     const j = await this.api(API + "?supportsAllDrives=true&fields=id,webViewLink", {
       method: "POST", headers: { "Content-Type": "application/json" },

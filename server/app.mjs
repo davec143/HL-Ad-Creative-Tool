@@ -142,6 +142,11 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       });
     }],
 
+    ["GET", /^\/api\/metrics$/, async (req, res) => {
+      const t = store.creditsForDay();
+      send(res, 200, { ...pipeline.obs.metrics(), creditsToday: { reserved: t.reserved, spent: t.spent, released: t.released, estimate: true } });
+    }],
+
     ["GET", /^\/api\/products$/, async (req, res, m, url) => {
       const q = (url.searchParams.get("q") || "").trim().slice(0, 100);
       try { send(res, 200, { products: await shopify.search(q) }); }

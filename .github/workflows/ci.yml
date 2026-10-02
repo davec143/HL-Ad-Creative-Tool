@@ -5,6 +5,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.11 = the production container (Debian bookworm); 3.12 = forward check.
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,12 +17,38 @@ jobs:
           cache: npm
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - run: npm ci
       - run: python -m pip install -r requirements-dev.txt
-      - name: Parity, providers, HTTP and pipeline tests
+      - name: finish.py is byte-identical to v16
+        run: cmp finishing/finish.py legacy/v16/source/finish.py
+      - name: Node tests (parity, safety, gates, security, providers, pipeline)
         run: node --test tests/*.test.mjs
         env:
           PYTHON: python
-      - name: Finishing tests
+      - name: Python tests (finishing)
         run: python -m pytest -q tests
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build -t hl-ad-builder:ci .
+      - name: Container self-check and readiness
+        run: |
+          docker run -d --name hl -e NODE_ENV=production -e APP_PASSWORD=ci-password-123 \
+            -e SESSION_SECRET=ci-secret-ci-secret-ci-secret-ci-secret -e PUBLIC_URL=https://ci.example \
+            -e RENDERER=higgsfield-mcp -p 8080:8080 hl-ad-builder:ci
+          for i in $(seq 1 30); do curl -sf localhost:8080/readyz && break; sleep 2; done
+          curl -sf localhost:8080/readyz
+          # PID 1 must not be root (the entrypoint drops to "node", uid 1000).
+          docker exec hl sh -c "awk '/^Uid:/{print \$2}' /proc/1/status" | grep -qx 1000
+          docker logs hl
+      - name: Production refuses to start without auth
+        run: |
+          set +e
+          docker run --rm -e NODE_ENV=production hl-ad-builder:ci; code=$?
+          test $code -ne 0

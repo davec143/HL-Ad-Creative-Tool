@@ -23,6 +23,7 @@ import { deliverability, parseQaStrict, BLOCKING_FLAGS } from "../core/gates.mjs
 import { QA_SCHEMA } from "./providers/llm.mjs";
 import { FIDELITY_SCHEMA, fidelityPrompt, parseFidelity } from "../core/fidelity.mjs";
 import { fetchSourceImage } from "./source-image.mjs";
+import { Obs } from "./obs.mjs";
 import crypto from "node:crypto";
 
 const INDEX = { master: 1, portrait: 2, landscape: 3 };
@@ -43,8 +44,9 @@ export function fileName(x) { return x.dims + (x.version > 1 ? "-v" + x.version 
 export function blockingFlags(x) { return (x.flags || []).filter((f) => BLOCKING_FLAGS.includes(f)); }
 
 export class Pipeline {
-  constructor({ cfg, store, renderer, llm, drive, log = console, sleep, fetchSource }) {
+  constructor({ cfg, store, renderer, llm, drive, log = console, sleep, fetchSource, obs }) {
     Object.assign(this, { cfg, store, renderer, llm, drive, logger: log });
+    this.obs = obs || new Obs({ store, write: () => {} });
     this.fetchSource = fetchSource || ((url, dest) => fetchSourceImage(url, dest, { shopifyStore: cfg.shopifyStore }));
     this.active = null;          // id of the run being worked on (one at a time)
     this.pending = new Set();    // ids queued or active: a second request for the same run is refused
@@ -60,6 +62,12 @@ export class Pipeline {
     const t = this.store.creditsForRun(run.id);
     run.credits = t.committed; run.creditsDetail = { reserved: t.reserved, spent: t.spent, released: t.released, estimate: true };
     this.store.saveRun(run);
+  }
+  // Structured event + metric. Never includes prompts or paths.
+  event(name, run, x, extra = {}) {
+    const a = extra.attempt;
+    this.obs.log(extra.level || "info", name, { runId: run && run.id, kind: x && x.kind, version: x && x.version, attemptId: a && a.id, jobId: a && a.jobId, provider: extra.provider, from: extra.from, to: extra.to, code: extra.code, credits: extra.credits });
+    this.obs.count(name);
   }
   attempt(run, id) { return id ? (run.attempts || []).find((a) => a.id === id) : null; }
   liveAttempt(run, x) { const a = this.attempt(run, x.attemptId); return a && LIVE.includes(a.state) ? a : null; }
@@ -184,6 +192,7 @@ export class Pipeline {
       await this.stepDrive(run, run.items.filter((x) => x.file && !x.drive));
       run.status = run.items.some((x) => x.state === "failed") ? "partial" : "done";
       this.log(run, run.status === "done" ? "Set finished." : "Set finished with a size missing — use Regenerate on it.", run.status === "done" ? "ok" : "err");
+      this.obs.duration(Date.now() - run.ts); this.event("run_" + run.status, run, null);
     } catch (e) {
       const amb = e.code === "ambiguous";
       run.status = amb ? "needs_decision" : "failed"; run.error = { code: e.code || "error", message: e.message };
@@ -261,6 +270,7 @@ export class Pipeline {
   async submitAttempts(run, atts, allowRetry) {
     for (const a of atts) { a.state = "submitting"; a.submittedAt = Date.now(); }
     this.save(run);
+    for (const a of atts) this.event("render_submitted", run, this.item(run, a.kind), { attempt: a, provider: this.renderer.name, from: "prepared", to: "submitting", credits: a.credits });
     let res;
     try {
       res = await this.renderer.submit(atts.map((a) => ({ index: a.index, params: a.params, meta: a.meta })));
@@ -276,6 +286,7 @@ export class Pipeline {
       }
       for (const a of atts) { a.state = "ambiguous"; a.error = "Submission " + (e.code === "timeout" ? "timed out" : "was interrupted") + ": " + e.message; }
       this.save(run);
+      for (const a of atts) this.event("render_ambiguous", run, this.item(run, a.kind), { attempt: a, provider: this.renderer.name, from: "submitting", to: "ambiguous", code: e.code, level: "warn", credits: a.credits });
       return; // renderItems sees the ambiguous attempts and stops
     }
     const jobs = (res && Array.isArray(res.jobs)) ? res.jobs : [];
@@ -296,6 +307,10 @@ export class Pipeline {
       }
     }
     this.save(run);
+    for (const a of atts) {
+      const name = { accepted: "render_accepted", explicitly_rejected: "render_rejected", ambiguous: "render_ambiguous" }[a.state];
+      if (name) this.event(name, run, this.item(run, a.kind), { attempt: a, provider: this.renderer.name, from: "submitting", to: a.state, level: a.state === "accepted" ? "info" : "warn", credits: a.credits });
+    }
     if (!retry.length) return;
     // Exactly one retry, only for items Higgsfield explicitly marked submission_failed.
     await this.sleep(5000);
@@ -380,7 +395,7 @@ export class Pipeline {
     const v = validateOutput(out, x.W, x.H), pr = r.result || {};
     x.output = pr.ok && v.ok ? { ...v, quality: pr.quality || null, reencoded: !!pr.reencoded } : { ok: false, error: pr.error || v.error || "output check failed", bytes: v.bytes, width: v.width, height: v.height };
     x.state = "done"; x.qa = null; x.fidelity = null; x.drive = null; x.held = false; x.override = null;
-    if (!x.output.ok) this.log(run, "  " + x.dims + " — output check failed: " + x.output.error, "err");
+    if (!x.output.ok) { this.log(run, "  " + x.dims + " — output check failed: " + x.output.error, "err"); this.event("output_invalid", run, x, { level: "warn" }); }
     this.log(run, "  " + x.dims + " — " + r.mode.replace(/\s*\|\s*FLAGS.*$/, ""), r.flags.length ? "err" : "run");
     if (r.flags.length) this.log(run, "    flagged: " + r.flags.join(", "), "err");
   }
@@ -390,7 +405,7 @@ export class Pipeline {
     this.log(run, "Finishing " + list.map((x) => x.dims).join(", ") + " — exact size, brand colour, logo…");
     for (const x of list) {
       try { await this.finishItem(run, x); }
-      catch (e) { x.state = "failed"; x.error = "Finishing failed: " + e.message; this.log(run, "  " + x.dims + " — " + x.error, "err"); }
+      catch (e) { x.state = "failed"; x.error = "Finishing failed: " + e.message; this.log(run, "  " + x.dims + " — " + x.error, "err"); this.event("finishing_failed", run, x, { level: "warn" }); }
     }
     this.save(run);
   }
@@ -430,9 +445,10 @@ export class Pipeline {
           x.qa = { state: r.pass ? "pass" : "fail", issues: r.issues, version: x.version };
           x.flags = x.flags.filter((f) => f !== "TEXT"); if (!r.pass) x.flags.push("TEXT");
           this.log(run, "  " + x.dims + " text & logo check: " + (r.pass ? "passed" : "failed — " + r.issues.join("; ")), r.pass ? "ok" : "err");
+          this.event(r.pass ? "qa_pass" : "qa_fail", run, x);
         }
       } catch (e) {
-        for (const x of g) x.qa = { state: "error", code: e.code || "error", message: e.message };
+        for (const x of g) { x.qa = { state: "error", code: e.code || "error", message: e.message }; this.event("qa_error", run, x, { code: e.code, level: "warn" }); }
         this.log(run, "  Text & logo check couldn't run: " + e.message, "err");
       }
       this.save(run);
@@ -488,18 +504,37 @@ export class Pipeline {
   async stepDrive(run, list) {
     list = list.filter((x) => x.state === "done" && x.file && !x.drive);
     if (!list.length) return;
-    for (const x of list) x.held = !this.gate(x).deliverable;
+    for (const x of list) { const was = x.held; x.held = !this.gate(x).deliverable; if (x.held && !was) this.event("asset_held", run, x); }
     this.save(run);
     if (!this.drive || !this.drive.enabled || !run.saveDrive) return;
     const go = list.filter((x) => !x.held);
     this.save(run);
     if (!go.length) return;
     try {
-      if (!run.folder) run.folder = await this.drive.createFolder(run.S.folder);
+      // Folder: one per set, saved the moment it exists. Folder names can repeat (same product, same
+      // day), so an existing folder is only adopted when THIS set's own create was interrupted, and
+      // only one created after that attempt started.
+      if (!run.folder) {
+        let found = null;
+        if (run.folderCreate && run.folderCreate.state === "creating" && this.drive.findByName) {
+          found = await this.drive.findByName(this.drive.parent, run.S.folder, true, { createdAfter: run.folderCreate.at - 60000 });
+        }
+        if (!found) { run.folderCreate = { state: "creating", at: Date.now() }; this.save(run); found = await this.drive.createFolder(run.S.folder); }
+        run.folder = found; run.folderCreate = { state: "done", at: Date.now() };
+        this.save(run);
+      }
       for (const x of go) {
-        const f = await this.drive.uploadJpeg(run.folder.id, fileName(x), fs.readFileSync(this.store.filePath(run.id, x.file)));
-        x.drive = { id: f.id, name: fileName(x) }; x.held = false;
-        this.log(run, "  " + fileName(x) + " saved to Drive.", "ok");
+        const name = fileName(x);
+        // An upload whose outcome is unknown (crash mid-call): look before uploading again.
+        if (x.driveUpload && x.driveUpload.state === "uploading" && x.driveUpload.name === name && this.drive.findByName) {
+          const found = await this.drive.findByName(run.folder.id, name);
+          if (found) { x.drive = { id: found.id, name }; x.driveUpload = { state: "done", name, at: Date.now(), reconciled: true }; this.save(run); continue; }
+        }
+        x.driveUpload = { state: "uploading", name, at: Date.now() }; this.save(run);
+        const f = await this.drive.uploadJpeg(run.folder.id, name, fs.readFileSync(this.store.filePath(run.id, x.file)));
+        x.drive = { id: f.id, name }; x.held = false; x.driveUpload = { state: "done", name, at: Date.now() };
+        this.event("drive_uploaded", run, x);
+        this.log(run, "  " + name + " saved to Drive.", "ok");
         this.save(run);
       }
     } catch (e) {
@@ -593,6 +628,7 @@ export class Pipeline {
     x.override = { at: Date.now(), run: run.id, item: kind, version: x.version, file: x.file, reason, actor: actor || null, heldFor: g.reasons };
     (run.overrides = run.overrides || []).push(x.override);
     this.log(run, "Override recorded for the " + x.dims + " (v" + x.version + "): " + reason, "err");
+    this.event("override", run, x, { level: "warn" });
     this.save(run);
     return this.saveToDrive(id, kind);
   }

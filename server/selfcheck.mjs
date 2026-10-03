@@ -5,7 +5,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { ROOT } from "./config.mjs";
 import { runPython } from "./py.mjs";
-import { chromiumPath, Composer } from "../composer/render.mjs";
+import { Composer } from "../composer/render.mjs";
 import { layoutFor } from "../composer/templates.mjs";
 import { SAMPLE } from "../core/brand.mjs";
 
@@ -44,12 +44,11 @@ export async function selfCheck(cfg) {
   //    product-cutout model. A real layout of the sample copy is rendered as the proof.
   const composer = new Composer();
   try {
-    if (!chromiumPath()) throw new Error("Chromium not found");
     const tiny = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     const r = await composer.compose(layoutFor("t1", "master", SAMPLE.t1 || {}), { scene: null, product: tiny }, { screenshot: false, allowInvalid: true });
     const bad = r.report.errors.filter((e) => e.code === "FONT");
     add("composer_browser", !bad.length, bad.map((e) => e.message).join(" "));
-  } catch (e) { add("composer_browser", false, String(e.message).slice(0, 600)); }
+  } catch (e) { const m = String(e.message); add("composer_browser", false, m.length > 900 ? m.slice(0, 200) + " … " + m.slice(-700) : m); }
   finally { await composer.close(); }
   try { add("cutout_model", fs.statSync(cfg.cutoutModel).size > 1e7, cfg.cutoutModel); }
   catch { add("cutout_model", false, "missing: " + cfg.cutoutModel); }

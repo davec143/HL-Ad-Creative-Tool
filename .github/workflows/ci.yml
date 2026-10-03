@@ -47,6 +47,10 @@ jobs:
           # PID 1 must not be root (the entrypoint drops to "node", uid 1000).
           docker exec hl sh -c "awk '/^Uid:/{print \$2}' /proc/1/status" | grep -qx 1000
           docker logs hl
+      - name: Browser diagnostics (on failure)
+        if: failure()
+        run: |
+          docker run --rm --entrypoint sh hl-ad-builder:ci -c 'ls /opt/pw-browsers; for c in /opt/pw-browsers/*/chrome-linux*/chrome /opt/pw-browsers/*/chrome-*/chrome-headless-shell /opt/pw-browsers/*/chrome-linux*/headless_shell; do [ -x "$c" ] || continue; echo "== $c"; setpriv --reuid=node --regid=node --init-groups -- "$c" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --dump-dom about:blank 2>&1 | tail -15; done' || true
       - name: Production refuses to start without auth
         run: |
           set +e

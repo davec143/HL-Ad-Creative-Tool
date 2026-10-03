@@ -38,10 +38,17 @@ export class Composer {
   async ensure() {
     if (this.browser && this.browser.isConnected()) return this.browser;
     if (this.launchImpl) { this.browser = await this.launchImpl(); return this.browser; }
+    const { chromium } = await import("playwright-core");
+    const args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--font-render-hinting=none", "--disable-lcd-text"];
+    // Prefer Playwright's own headless build for its version (what the Docker image installs);
+    // fall back to any Chromium found on this machine (development).
+    if (!process.env.CHROMIUM_PATH) {
+      try { this.browser = await chromium.launch({ args }); return this.browser; }
+      catch (e) { if (!/Executable doesn't exist|browserType\.launch: .*(not found|install)/i.test(String(e.message))) throw e; }
+    }
     const exe = chromiumPath();
     if (!exe) throw new ComposeError("no_browser", "Chromium isn't installed, so ads can't be composed.");
-    const { chromium } = await import("playwright-core");
-    this.browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--font-render-hinting=none", "--disable-lcd-text"] });
+    this.browser = await chromium.launch({ executablePath: exe, args });
     return this.browser;
   }
 

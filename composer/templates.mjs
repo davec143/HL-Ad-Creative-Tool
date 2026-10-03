@@ -38,7 +38,7 @@ const T1 = {
     seal: { cx: 906, cy: 1210, d: 210 },
     cta: { cx: 540, y: 1388, h: 88, maxW: 900, size: [36, 26] },
     contact: { cx: 540, y: 1496, maxW: 952, size: [24, 18] },
-    dots: { w: 560, h: 620 },
+    dots: { w: 520, h: 360 },
     safe: { top: 269, bottom: 1536 },
   },
   landscape: {
@@ -50,7 +50,7 @@ const T1 = {
     seal: { cx: 1078, cy: 494, d: 144 },
     cta: { x: 56, y: 470, h: 60, maxW: 400, size: [24, 18] },
     contact: { x: 56, y: 552, maxW: 430, size: [16, 12] },
-    dots: { w: 360, h: 300 },
+    dots: { x: 420, w: 280, h: 250 },
   },
 };
 

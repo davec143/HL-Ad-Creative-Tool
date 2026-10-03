@@ -50,7 +50,7 @@ ${fonts()}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:${px(W)};height:${px(H)};overflow:hidden;background:${K.field}}
 body{font-family:"HLMontserrat";-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;position:relative}
-.dots{position:absolute;left:0;bottom:0;width:${px(L.dots.w)};height:${px(L.dots.h)};
+.dots{position:absolute;left:${px(L.dots.x || 0)};bottom:0;width:${px(L.dots.w)};height:${px(L.dots.h)};
   background-image:radial-gradient(circle,${K.goldBright} 5.5px,transparent 6.5px);background-size:34px 34px;background-position:6px 6px;opacity:.55;
   -webkit-mask-image:linear-gradient(45deg,#000 30%,transparent 92%);mask-image:linear-gradient(45deg,#000 30%,transparent 92%)}
 #logo{position:absolute;left:${px(logo.x)};top:${px(logo.y)};width:${px(logo.w)};height:auto;display:block}
@@ -69,7 +69,7 @@ body{font-family:"HLMontserrat";-webkit-font-smoothing:antialiased;text-renderin
   display:flex;align-items:center;justify-content:center;text-align:center;font-weight:800;line-height:1.1;padding:${px(Math.round(L.seal.d * 0.12))};box-shadow:0 6px 16px rgba(0,0,0,.3);text-transform:uppercase}
 #cta{position:absolute;${ctaBox}top:${px(L.cta.y)};height:${px(L.cta.h)};max-width:${px(L.cta.maxW)};padding:0 1.35em;border-radius:${px(L.cta.h)};background:${K.gold};color:${K.ink};
   font-weight:800;white-space:nowrap;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(0,0,0,.32);letter-spacing:.01em}
-#contact{position:absolute;${contactBox}top:${px(L.contact.y)};color:#fff;font-weight:500;white-space:nowrap}
+#contact{position:absolute;${contactBox}top:${px(L.contact.y)};color:#fff;font-weight:500;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.45)}
 </style></head><body>
 <div class="dots" id="dots"></div>
 ${sceneEl}

@@ -42,8 +42,8 @@ jobs:
           docker run -d --name hl -e NODE_ENV=production -e APP_PASSWORD=ci-password-123 \
             -e SESSION_SECRET=ci-secret-ci-secret-ci-secret-ci-secret -e PUBLIC_URL=https://ci.example \
             -e RENDERER=higgsfield-mcp -p 8080:8080 hl-ad-builder:ci
-          for i in $(seq 1 30); do curl -sf localhost:8080/readyz && break; sleep 2; done
-          curl -sf localhost:8080/readyz
+          for i in $(seq 1 60); do curl -sf localhost:8080/readyz && break; sleep 2; done
+          curl -sf localhost:8080/readyz || { docker logs hl; exit 1; }
           # PID 1 must not be root (the entrypoint drops to "node", uid 1000).
           docker exec hl sh -c "awk '/^Uid:/{print \$2}' /proc/1/status" | grep -qx 1000
           docker logs hl

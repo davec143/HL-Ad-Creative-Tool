@@ -135,7 +135,7 @@ test("config: provider defaults and validation", () => {
   assert.equal(m.llmQaModel, "m", "QA falls back to the draft model");
   const oa = readConfig({ OPENAI_API_KEY: "sk-x" });
   assert.equal(oa.llmProvider, "openai"); assert.equal(oa.llmApiKey, "sk-x"); assert.equal(oa.llmBaseUrl, "https://api.openai.com/v1");
-  assert.equal(oa.llmDraftModel, "gpt-5.6-luna"); assert.equal(oa.llmQaModel, "gpt-5.6-terra");
+  assert.equal(oa.llmDraftModel, "gpt-5.6-luna"); assert.equal(oa.llmQaModel, "gpt-5.6-luna");
   assert.deepEqual(checkConfig(oa).errors, []);
   const ov = readConfig({ LLM_PROVIDER: "openai", OPENAI_API_KEY: "sk-x", ANTHROPIC_API_KEY: "sk-ant", LLM_QA_MODEL: "gpt-5.5" });
   assert.equal(ov.llmApiKey, "sk-x", "the chosen provider's key wins"); assert.equal(ov.llmQaModel, "gpt-5.5");

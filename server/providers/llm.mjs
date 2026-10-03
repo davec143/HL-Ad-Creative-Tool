@@ -2,7 +2,7 @@
 // Provider-agnostic: both features call json({prompt, images, schema, model}) and get a parsed object.
 //   anthropic          Claude API via the official SDK. Defaults: claude-haiku-4-5 drafts,
 //                      claude-sonnet-5-5 checks (strict spelling on images is where accuracy pays).
-//   openai             OpenAI API. Defaults: gpt-5.6-luna drafts, gpt-5.6-terra checks.
+//   openai             OpenAI API. Default: gpt-5.6-luna for both (cheapest; set LLM_QA_MODEL=gpt-5.6-terra for stricter checks).
 //   openai-compatible  Any Chat Completions endpoint: Google Gemini (OpenAI-compatible
 //                      endpoint), OpenRouter, etc. Set LLM_BASE_URL + model names.
 //   none               Both features off; the rest of the app works.

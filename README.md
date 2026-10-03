@@ -75,7 +75,7 @@ Everything is set with environment variables. See `.env.example`.
 | Required in production | `APP_PASSWORD` (≥10 chars), `SESSION_SECRET` (≥32 chars), https `PUBLIC_URL` (or Railway's generated domain), `DATA_DIR=/data` |
 | Rendering | `RENDERER=higgsfield-mcp` (default; sign in once from the page), `CREDITS_PER_RENDER`, `MAX_CREDITS_PER_RUN`, `MAX_CREDITS_PER_DAY` |
 | Catalog | `SHOPIFY_STORE`, `SHOPIFY_ADMIN_TOKEN` (scopes `read_products`, `read_inventory`) |
-| Checks | `LLM_PROVIDER`: `openai` (`OPENAI_API_KEY`; `gpt-5.6-luna` drafts, `gpt-5.6-terra` checks), `anthropic` (`ANTHROPIC_API_KEY`; `claude-haiku-4-5` drafts, `claude-sonnet-5-5` checks), `openai-compatible` (Gemini, OpenRouter…), or `none`. `LLM_DRAFT_MODEL` / `LLM_QA_MODEL` override the models, `REQUIRE_PRODUCT_FIDELITY` (default on) |
+| Checks | `LLM_PROVIDER`: `openai` (`OPENAI_API_KEY`; `gpt-5.6-luna` for both drafts and checks), `anthropic` (`ANTHROPIC_API_KEY`; `claude-haiku-4-5` drafts, `claude-sonnet-5-5` checks), `openai-compatible` (Gemini, OpenRouter…), or `none`. `LLM_DRAFT_MODEL` / `LLM_QA_MODEL` override the models, `REQUIRE_PRODUCT_FIDELITY` (default on) |
 | Drive | `GOOGLE_SERVICE_ACCOUNT_JSON`, `DRIVE_PARENT` |
 
 **Without an LLM, nothing is delivered automatically.** The checks are off, so every file is *unchecked* and needs a recorded override.

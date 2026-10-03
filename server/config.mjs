@@ -71,7 +71,7 @@ export function readConfig(env = process.env) {
   };
   const DEFAULT_MODELS = {
     anthropic: { draft: "claude-haiku-4-5", qa: "claude-sonnet-5-5" },
-    openai: { draft: "gpt-5.6-luna", qa: "gpt-5.6-terra" },
+    openai: { draft: "gpt-5.6-luna", qa: "gpt-5.6-luna" },
     "openai-compatible": { draft: "", qa: "" },
     none: { draft: "", qa: "" },
   };

@@ -46,7 +46,7 @@ Design records: `docs/adr/0001` deterministic brand composition · `0002` Google
 **Architecture changes from the original plan (decided during the build):**
 - **Server is Node, not FastAPI.** The page's engine (prompts, limits) is shared verbatim between browser and server, and finishing still runs v16's Python `finish.py` unchanged, as a subprocess. This carries less porting risk than rewriting the JS prompts in Python.
 - **Higgsfield via its official MCP server + one-time OAuth sign-in**, not the key-based Cloud API. The Cloud API bills a separate prepaid dollar balance, and Nano Banana Pro availability there is unconfirmed. The MCP path is exactly what v16 used: the same tools, model and subscription credits.
-- **LLM is provider-agnostic:** `openai` (defaults `gpt-5.6-luna` for drafting, `gpt-5.6-terra` for vision checks), `anthropic` (defaults `claude-haiku-4-5`, `claude-sonnet-5-5`), `openai-compatible` (Gemini, OpenRouter, etc.), or `none`. No provider has been live-tested yet.
+- **LLM is provider-agnostic:** `openai` (default `gpt-5.6-luna` for drafting and vision checks), `anthropic` (defaults `claude-haiku-4-5`, `claude-sonnet-5-5`), `openai-compatible` (Gemini, OpenRouter, etc.), or `none`. No provider has been live-tested yet.
 - **Logos** come from the template library (byte-identical to v16's display copies), committed in `assets/logos/` with hashes.
 
 **Goal:** Rebuild the HitLights Ad Builder (kit v16) as a standalone web app that doesn't depend on a Claude account, artifact runtime or connectors. It must produce the same output as v16 (same prompts, Logo Grid, finishing and QA), with Higgsfield as the renderer. It should be more stable than v16.

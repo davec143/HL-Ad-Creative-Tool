@@ -599,12 +599,15 @@ export class Pipeline {
 
   // The real product photo with its background removed. Made once per product photo and reused;
   // a person approves it once (or uploads their own), after which sets with it can auto-deliver.
+  // The set keeps its own copy of the cutout; it's refreshed whenever the shared one changed
+  // (approved, replaced by an upload, or redone by a newer method), e.g. on Re-compose.
   async stepCutout(run) {
-    const have = run.cutout && run.cutout.sha && fs.existsSync(this.cutoutFile(run));
-    if (have) { const c = this.cutouts.get(run.cutout.sha); if (c) run.cutout.state = c.state; this.save(run); return; }
-    this.log(run, "Cutting the product out of its photo…");
+    const fresh = !(run.cutout && run.cutout.sha);
+    if (fresh) this.log(run, "Cutting the product out of its photo…");
     const c = await this.cutouts.ensure(this.store.filePath(run.id, run.S.source.file), { python: this.cfg.python, model: this.cfg.cutoutModel });
-    run.cutout = { sha: c.sha, state: c.state, error: c.error || null };
+    const same = !fresh && run.cutout.at === c.at && fs.existsSync(this.cutoutFile(run));
+    run.cutout = { sha: c.sha, state: c.state, error: c.error || null, at: c.at || null };
+    if (same) { this.save(run); return; }
     if (c.state === "failed") {
       this.save(run);
       throw new PipelineError("cutout", "Couldn't cut the product out of its photo: " + c.error + ". Upload a PNG of the product with a transparent background, then press Resume. Nothing was rendered or charged.");

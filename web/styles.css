@@ -150,3 +150,12 @@ select{max-width:100%;text-overflow:ellipsis}
 .cutout img{display:block;max-width:100%;max-height:220px;margin:0 auto}
 #preview{margin:10px 0 14px}
 #preview .side{margin-top:10px}
+
+/* product photo next to its cutout, so missing or see-through parts are easy to spot */
+.cutpair{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
+.cutpair figure{margin:0;flex:1 1 140px;max-width:220px}
+.cutpair figure.cutout{max-width:220px}
+.cutpair figure.photo{border:1px solid var(--line);border-radius:6px;padding:8px;background:#fff}
+.cutpair figure.violet{background:#523875}
+.cutpair img{display:block;max-width:100%;max-height:200px;margin:0 auto}
+.cutpair figcaption{font-size:11px;color:var(--text-faint);text-align:center;margin-top:4px}

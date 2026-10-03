@@ -6,7 +6,7 @@ import zlib from "node:zlib";
 import { ROOT } from "./config.mjs";
 import { validateForGenerate, draftBrief, applyDraft, FORM_FIELDS } from "../core/engine.mjs";
 import { TPL } from "../core/brand.mjs";
-import { DRAFT_SCHEMA } from "./providers/llm.mjs";
+import { DRAFT_SCHEMA, sniffImage } from "./providers/llm.mjs";
 import { fileName, blockingFlags, PipelineError } from "./pipeline.mjs";
 import { deliverability } from "../core/gates.mjs";
 import { guardDraft } from "../core/facts.mjs";
@@ -262,6 +262,15 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (!c) throw new HttpError(404, "No such cutout.");
       res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-cache" });
       res.end(fs.readFileSync(pipeline.cutouts.png(m[1])));
+    }],
+
+    ["GET", /^\/api\/cutouts\/([0-9a-f]{64})\/photo$/, async (req, res, m) => {
+      let buf;
+      try { buf = fs.readFileSync(pipeline.cutouts.photo(m[1])); } catch { throw new HttpError(404, "No photo for that cutout."); }
+      const type = sniffImage(buf);
+      if (!type) throw new HttpError(404, "No photo for that cutout.");
+      res.writeHead(200, { "Content-Type": type, "Cache-Control": "private, max-age=3600" });
+      res.end(buf);
     }],
 
     ["POST", /^\/api\/cutouts\/([0-9a-f]{64})\/approve$/, async (req, res, m) => {

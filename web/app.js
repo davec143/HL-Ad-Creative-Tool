@@ -249,10 +249,18 @@ function cutoutPanel(c, run) {
   box.appendChild(el("b", null, CUTOUT_LABEL[c.state] || c.state));
   if (c.error) box.appendChild(el("div", null, c.error));
   const img = c.sha && c.state !== "failed" ? "/api/cutouts/" + c.sha : null;
+  const photo = c.sha ? "/api/cutouts/" + c.sha + "/photo" : null;
   if (img) {
-    const wrap = el("div", "cutout"); const i = el("img"); i.src = img + "?t=" + Date.now(); i.alt = "Product cutout"; wrap.appendChild(i); box.appendChild(wrap);
+    // The original photo next to the cutout (on a checkerboard and on the brand violet), so a
+    // missing or see-through part of the product is easy to spot before approving.
+    const pair = el("div", "cutpair");
+    const fig = (src, cls, cap) => { const f = el("figure", cls); const i = el("img"); i.src = src; i.alt = cap; f.appendChild(i); f.appendChild(el("figcaption", null, cap)); return f; };
+    if (photo) pair.appendChild(fig(photo, "cutout photo", "Product photo"));
+    pair.appendChild(fig(img + "?t=" + Date.now(), "cutout", "Cutout"));
+    pair.appendChild(fig(img + "?t=" + Date.now(), "cutout violet", "Cutout on violet"));
+    box.appendChild(pair);
   }
-  if (c.state === "auto") box.appendChild(el("p", "hint", "Compare it with the product photo: nothing missing, nothing extra, edges clean. Once approved, every set with this photo can deliver automatically."));
+  if (c.state === "auto") box.appendChild(el("p", "hint", "Compare the cutout with the product photo: every part of the product there and solid (nothing see-through), nothing extra, clean edges. Once approved, every set with this photo can deliver automatically. If anything's off, replace it with your own PNG."));
   const row = el("div", "rowbtn");
   if (c.state === "auto") {
     const ok = el("button", "btn-quiet", "Approve cutout"); ok.type = "button";

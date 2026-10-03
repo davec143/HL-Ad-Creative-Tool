@@ -12,7 +12,7 @@ import { Store } from "../server/store.mjs";
 import { Pipeline } from "../server/pipeline.mjs";
 import { FakeRenderer } from "../server/render/fake.mjs";
 import { readConfig, ROOT } from "../server/config.mjs";
-import { CutoutStore, sha256 } from "../server/compose.mjs";
+import { CutoutStore, sha256, CUTOUT_ALGO } from "../server/compose.mjs";
 import { Composer, chromiumPath, textProblems } from "../composer/render.mjs";
 import { layoutFor, sealText, LAYOUTS, LOGO_W } from "../composer/templates.mjs";
 import { SAMPLE, LOGOGRID, CANVAS, LOGO_AR } from "../core/brand.mjs";
@@ -191,7 +191,7 @@ test("an automatic cutout holds the set until a person approves it (once, for ev
   const { pipeline, store, dir } = setup({ drive, photo: FLAT_JPG });
   // Pretend the model already cut this photo out (the model itself isn't needed for this test).
   const cs = new CutoutStore(dir), sha = sha256(FLAT_JPG);
-  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model" });
+  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model", algo: CUTOUT_ALGO });
   const run = pipeline.start(pipeline.create({ form: formT1(), picked: PICK, saveDrive: true }));
   await settle(pipeline);
   let r = store.getRun(run.id);
@@ -274,6 +274,18 @@ test("re-compose is free: same scene, no new render, files rebuilt", { skip: !HA
   const r = store.getRun(run.id);
   assert.equal(renderer.accepted.length, 1); assert.equal(r.credits, 2);
   assert.ok(r.items.every((x) => x.state === "done" && x.file));
+});
+
+test("an unapproved automatic cutout from an older method is redone; approved ones are kept", async () => {
+  const dir = tmp(), cs = new CutoutStore(dir), src = path.join(dir, "p.png");
+  fs.writeFileSync(src, CUT_PNG);
+  const sha = sha256(CUT_PNG);
+  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model", algo: 1 });
+  const r = await cs.ensure(src, { python: PY, model: "/nonexistent.onnx" });
+  assert.equal(r.state, "uploaded", "redone (this photo already has transparency, so it counts as supplied)");
+  cs.put(sha, { state: "approved", source: "model", algo: 1 });
+  const k = await cs.ensure(src, { python: PY, model: "/nonexistent.onnx" });
+  assert.equal(k.state, "approved", "a person's approval is never thrown away");
 });
 
 test("COMPOSED_TEMPLATES= sends T1 back down the original pipeline", () => {

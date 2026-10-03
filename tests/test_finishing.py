@@ -253,3 +253,33 @@ def test_cutout_without_the_model_says_so(tmp_path):
     Image.new("RGB", (400, 400), (255, 255, 255)).save(src)
     r = _run("cutout.py", src, tmp_path / "c.png", "/nonexistent.onnx")
     assert not r["ok"] and "model" in r["error"]
+
+
+def test_cutout_refine_keeps_the_product_solid_where_the_model_hesitated():
+    sys.path.insert(0, os.path.join(ROOT, "finishing"))
+    import cutout
+    rgb = np.full((200, 300, 3), 255, np.uint8)
+    rgb[40:160, 40:140] = (236, 232, 244)          # light lavender box face
+    rgb[40:160, 180:280] = (120, 70, 190)          # purple band at the product's edge
+    rgb[80:120, 210:250] = 255                     # a real hole: backdrop showing through
+    alpha = np.zeros((200, 300), np.uint8)
+    alpha[40:160, 40:140] = 230                    # the model was unsure about the face
+    alpha[40:160, 180:280] = 120                   # ...and half-dropped the band
+    alpha[80:120, 210:250] = 0
+    alpha[170:190, 40:280] = 0                     # a removed shadow stays removed
+    rgb[170:190, 40:280] = (200, 200, 200)
+    out, gained = cutout.refine(rgb, alpha)
+    assert out[100, 90] == 255 and out[100, 190] == 255, "product pixels become solid"
+    assert out[100, 230] == 0, "the backdrop in a real hole stays transparent"
+    assert out[180, 100] == 0, "background the model removed isn't brought back"
+    assert gained > 0
+
+
+def test_cutout_refine_leaves_a_busy_backdrop_alone():
+    sys.path.insert(0, os.path.join(ROOT, "finishing"))
+    import cutout
+    rng = np.random.default_rng(5)
+    rgb = rng.integers(0, 255, (120, 120, 3), dtype=np.uint8)
+    alpha = np.full((120, 120), 128, np.uint8)
+    out, gained = cutout.refine(rgb, alpha)
+    assert (out == alpha).all() and gained == 0.0

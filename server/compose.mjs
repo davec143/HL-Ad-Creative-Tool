@@ -12,6 +12,9 @@ import { dataUri } from "../composer/page.mjs";
 const CUTOUT = path.join(ROOT, "finishing", "cutout.py");
 const ENCODE = path.join(ROOT, "finishing", "encode.py");
 const SHA = /^[0-9a-f]{64}$/;
+// Cutout method version (finishing/cutout.py ALGO). An automatic cutout made by an older method and
+// not yet approved is redone; approved and uploaded cutouts are never touched.
+export const CUTOUT_ALGO = 2;
 export const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 
 // Cutouts are keyed by the SHA-256 of the product photo they were made from, so the same photo is
@@ -20,6 +23,8 @@ export class CutoutStore {
   constructor(dataDir) { this.dir = path.join(dataDir, "cutouts"); fs.mkdirSync(this.dir, { recursive: true }); }
   png(sha) { if (!SHA.test(sha)) throw new Error("bad cutout id"); return path.join(this.dir, sha + ".png"); }
   metaPath(sha) { return this.png(sha).replace(/\.png$/, ".json"); }
+  // The product photo the cutout was made from, kept beside it so the approval panel can show both.
+  photo(sha) { return this.png(sha).replace(/\.png$/, ".photo"); }
   get(sha) {
     try {
       const m = JSON.parse(fs.readFileSync(this.metaPath(sha), "utf8"));
@@ -34,7 +39,8 @@ export class CutoutStore {
   // {state: "failed", error} so the caller can say why before any credits are spent.
   async ensure(srcFile, { python, model }) {
     const buf = fs.readFileSync(srcFile), sha = sha256(buf), have = this.get(sha);
-    if (have) return have;
+    if (!fs.existsSync(this.photo(sha))) { const t = this.photo(sha) + "." + process.pid + ".tmp"; fs.writeFileSync(t, buf); fs.renameSync(t, this.photo(sha)); }
+    if (have && !(have.state === "auto" && (have.algo || 1) < CUTOUT_ALGO)) return have;
     const out = this.png(sha), tmp = out + "." + process.pid + ".tmp.png";
     let r;
     try {
@@ -44,7 +50,7 @@ export class CutoutStore {
     if (!r || !r.ok) { try { fs.unlinkSync(tmp); } catch { /* none */ } return { sha, state: "failed", error: (r && r.error) || "Background removal returned nothing." }; }
     fs.renameSync(tmp, out);
     // A supplied PNG that already had transparency counts as a person's cutout.
-    return this.put(sha, { state: r.source === "supplied" ? "uploaded" : "auto", source: r.source, width: r.width, height: r.height, coverage: r.coverage });
+    return this.put(sha, { state: r.source === "supplied" ? "uploaded" : "auto", source: r.source, width: r.width, height: r.height, coverage: r.coverage, algo: r.algo || 1, refined: r.refined || 0 });
   }
   approve(sha, actor) {
     const m = this.get(sha); if (!m) throw new Error("No such cutout.");

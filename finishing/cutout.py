@@ -6,6 +6,14 @@ The product is never redrawn: the cutout keeps the photo's own pixels and only a
 A photo that already has real transparency (a supplied cutout PNG) is used as is. Otherwise the
 background is removed with IS-Net (isnet-general-use, ONNX, CPU) using rembg's pre/post-processing.
 
+The model can be unsure about parts of the product (a light panel, a band at the edge) and make
+them half-transparent, so the backdrop would show through the product in the ad. On a plain
+studio backdrop, refine() keeps the product's own pixels solid wherever the model hesitated:
+  - a half-transparent pixel whose colour clearly differs from the backdrop becomes solid;
+  - a gap enclosed by the product is solid if it's product-coloured, and stays transparent if it's
+    the backdrop showing through (a real hole, e.g. the centre of a strip reel).
+Background the model removed with confidence (alpha ~0, e.g. soft shadows) is never brought back.
+
 The result is trimmed to the product (plus a small margin) and sanity-checked. It is not trusted
 blindly: the app shows it to a person once per product photo, and sets made with an unapproved
 cutout are held until it is approved (or replaced with an uploaded PNG).
@@ -17,12 +25,13 @@ import os
 import sys
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 MODEL_DEFAULT = os.environ.get("CUTOUT_MODEL", "/opt/models/isnet-general-use.onnx")
 SIZE = 1024
 MIN_COVER, MAX_COVER = 0.02, 0.97  # share of the frame the product may plausibly fill
 PAD = 0.03
+ALGO = 2  # bump when the cutout method changes: unapproved automatic cutouts are redone
 
 
 def existing_alpha(im):
@@ -47,6 +56,43 @@ def predict(im, model):
     return np.asarray(m)
 
 
+def backdrop(rgb):
+    """Median colour and spread of a thin border strip, or None if the backdrop isn't plain."""
+    h, w, _ = rgb.shape
+    b = max(2, int(round(min(h, w) * 0.01)))
+    strip = np.concatenate([rgb[:b].reshape(-1, 3), rgb[-b:].reshape(-1, 3), rgb[:, :b].reshape(-1, 3), rgb[:, -b:].reshape(-1, 3)]).astype(np.float32)
+    med = np.median(strip, axis=0)
+    spread = float(np.median(np.abs(strip - med).max(axis=1)))
+    return (med, spread) if spread <= 12 else None
+
+
+def enclosed(mask):
+    """Pixels of `mask` (True = see-through) not connected to the image border through mask."""
+    h, w = mask.shape
+    m = Image.new("L", (w + 2, h + 2), 255)                       # padded: the border is see-through
+    m.paste(Image.fromarray(np.where(mask, 255, 0).astype(np.uint8)), (1, 1))
+    ImageDraw.floodfill(m, (0, 0), 128)                           # everything reachable from outside
+    return np.asarray(m)[1:-1, 1:-1] == 255
+
+
+def refine(rgb, alpha):
+    """Keep the product solid where the model hesitated (see the module docstring)."""
+    bd = backdrop(rgb)
+    if bd is None:
+        return alpha, 0.0
+    med, spread = bd
+    dist = np.abs(rgb.astype(np.float32) - med).max(axis=2)
+    t = max(10.0, 4.0 * spread)
+    colored = np.clip((dist - t) / 6.0, 0.0, 1.0)                 # 0 = backdrop colour, 1 = clearly not
+    a = alpha.astype(np.float32) / 255.0
+    unsure = (a > 0.03) & (a < 0.995)
+    holes = enclosed(a < 0.5)
+    boost = np.where(unsure | holes, colored, 0.0)
+    out = np.maximum(a, boost)
+    gained = float(((out - a) > 0.25).mean())
+    return (out * 255 + 0.5).astype(np.uint8), gained
+
+
 def clean(alpha):
     """Choke the soft edge slightly (keeps a white photo background from haloing on dark grounds)."""
     a = alpha.astype(np.float32) / 255.0
@@ -59,7 +105,7 @@ def main(argv):
         sys.exit("usage: cutout.py <photo> <out.png> [model.onnx]")
     src, out = argv[1], argv[2]
     model = argv[3] if len(argv) == 4 else MODEL_DEFAULT
-    res = {"ok": False, "width": None, "height": None, "coverage": None, "source": None, "error": None}
+    res = {"ok": False, "width": None, "height": None, "coverage": None, "source": None, "error": None, "algo": ALGO}
     with Image.open(src) as im:
         im.load()
         alpha = existing_alpha(im)
@@ -70,8 +116,9 @@ def main(argv):
                 res["error"] = "the background-removal model isn't installed"
                 print("RESULT " + json.dumps(res))
                 return
-            alpha = clean(predict(im, model))
+            alpha, gained = refine(np.asarray(im.convert("RGB")), clean(predict(im, model)))
             res["source"] = "model"
+            res["refined"] = round(gained, 4)
         rgb = np.asarray(im.convert("RGB"))
     solid = alpha > 127
     cover = float(solid.mean())

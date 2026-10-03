@@ -22,7 +22,7 @@ const SIZES = ["1080x1080", "1080x1920", "1200x628"];
 
 function setup(fidelityVerdicts, { source = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hlab-fid-"));
-  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY });
+  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, COMPOSED_TEMPLATES: "" });
   const store = new Store(dir);
   const uploads = [], seen = [];
   const drive = { enabled: true, createFolder: async () => ({ id: "F", url: "https://drive.google.com/drive/folders/F" }), uploadJpeg: async (f, n) => { uploads.push(n); return { id: "d" }; } };

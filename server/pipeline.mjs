@@ -3,6 +3,10 @@
 //   finish (exact size, colour locks, real logo) -> repaint a blank logo patch once ->
 //   text & logo check -> save clean files to Drive -> done.
 //
+// Composed templates (composer/templates.mjs, T1 first) take a different path: product cutout ->
+// free layout check -> ONE paid scene render -> scene check -> compose every size locally (real
+// product photo, text, CTA and logo set by the app) -> Drive. See docs/adr/0001 and 0003.
+//
 // Paid-render safety (at-most-once, not exactly-once: Higgsfield exposes no idempotency key).
 // Every paid request is an "attempt" record on the run, saved BEFORE it is sent:
 //   prepared -> submitting -> accepted -> waiting -> completed
@@ -25,8 +29,15 @@ import { FIDELITY_SCHEMA, fidelityPrompt, parseFidelity } from "../core/fidelity
 import { fetchSourceImage } from "./source-image.mjs";
 import { Obs } from "./obs.mjs";
 import crypto from "node:crypto";
+import { isComposed, layoutFor, SCENE_ASPECT } from "../composer/templates.mjs";
+import { ComposeError } from "../composer/render.mjs";
+import { scenePrompt, sceneParams, SCENE_SCHEMA, sceneCheckPrompt, parseSceneCheck } from "../core/scene.mjs";
+import { CutoutStore, cutoutApproved, imageUri, composeToJpeg } from "./compose.mjs";
+import { runPython } from "./py.mjs";
+import { ROOT } from "./config.mjs";
+import { sniffImage } from "./providers/llm.mjs";
 
-const INDEX = { master: 1, portrait: 2, landscape: 3 };
+const INDEX = { master: 1, portrait: 2, landscape: 3, scene: 5 };
 const LIVE = ["prepared", "submitting", "accepted", "waiting", "ambiguous"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -44,8 +55,10 @@ export function fileName(x) { return x.dims + (x.version > 1 ? "-v" + x.version 
 export function blockingFlags(x) { return (x.flags || []).filter((f) => BLOCKING_FLAGS.includes(f)); }
 
 export class Pipeline {
-  constructor({ cfg, store, renderer, llm, drive, log = console, sleep, fetchSource, obs }) {
-    Object.assign(this, { cfg, store, renderer, llm, drive, logger: log });
+  constructor({ cfg, store, renderer, llm, drive, log = console, sleep, fetchSource, obs, composer, cutouts }) {
+    Object.assign(this, { cfg, store, renderer, llm, drive, logger: log, composer });
+    this._cutouts = cutouts || null;
+    this.composedSet = new Set(cfg.composedTemplates || []);
     this.obs = obs || new Obs({ store, write: () => {} });
     this.fetchSource = fetchSource || ((url, dest) => fetchSourceImage(url, dest, { shopifyStore: cfg.shopifyStore }));
     this.active = null;          // id of the run being worked on (one at a time)
@@ -57,7 +70,10 @@ export class Pipeline {
 
   // ---------- helpers ----------
   log(run, msg, cls = "run") { run.log.push({ t: Date.now(), msg, cls }); this.store.saveRun(run); }
-  item(run, kind) { return run.items.find((x) => x.kind === kind); }
+  item(run, kind) { return kind === "scene" ? run.scene || null : run.items.find((x) => x.kind === kind); }
+  get cutouts() { return this._cutouts || (this._cutouts = new CutoutStore(this.cfg.dataDir)); }
+  isComposed(tpl) { return this.composedSet.has(tpl) && isComposed(tpl); }
+  allItems(run) { return run.scene ? [...run.items, run.scene] : run.items; }
   save(run) {
     const t = this.store.creditsForRun(run.id);
     run.credits = t.committed; run.creditsDetail = { reserved: t.reserved, spent: t.spent, released: t.released, estimate: true };
@@ -109,7 +125,7 @@ export class Pipeline {
       if (a.state === "prepared") {
         a.state = "failed"; a.notSent = true; a.error = "Stopped before it was sent."; a.resolvedAt = Date.now();
         this.store.release(a.id); changed = true;
-        for (const x of run.items) if (x.attemptId === a.id) x.attemptId = null;
+        for (const x of this.allItems(run)) if (x.attemptId === a.id) x.attemptId = null;
       } else if (a.state === "submitting") {
         a.state = "ambiguous"; a.error = "The server stopped while this render was being submitted; Higgsfield may or may not have accepted it."; changed = true;
       }
@@ -122,6 +138,8 @@ export class Pipeline {
   create({ form, picked, saveDrive, setNo = 1, folderOverride }) {
     const S = snapshot(form, picked);
     if (folderOverride) S.folder = folderOverride;
+    S.composed = this.isComposed(form.tpl);
+    if (S.composed) S.scenePrompt = scenePrompt(form);
     // The exact product and variant this set was made for, frozen at Generate time.
     picked = picked || {};
     S.source = {
@@ -136,8 +154,13 @@ export class Pipeline {
         kind: k, dims: CANVAS[k].dims, title: CANVAS[k].title, W: CANVAS[k].W, H: CANVAS[k].H,
         logo: S.logo[k], version: 1, state: k === "master" ? "rendering" : "waiting",
         job: null, url: null, attemptId: null, file: null, mode: "", flags: [], repaired: false, qa: null, drive: null, held: false, error: null,
+        composed: S.composed,
       })),
+      // Composed sets: the one paid render (the scene photograph) and the product cutout.
+      scene: S.composed ? { kind: "scene", dims: "scene", title: "Scene photo", version: 1, state: "waiting", logo: { zone: null }, job: null, url: null, attemptId: null, file: null, qa: null, error: null } : null,
+      cutout: null,
     };
+    if (S.composed) for (const x of run.items) x.state = "waiting";
     this.log(run, "Settings captured — edits from here on won't affect this set.");
     return run;
   }
@@ -180,6 +203,7 @@ export class Pipeline {
     const run = this.store.getRun(id);
     this.recover(run);
     run.status = "running"; this.save(run);
+    if (run.S.composed) return this.processComposed(run);
     try {
       await this.stepSource(run);
       await this.stepImport(run);
@@ -324,7 +348,7 @@ export class Pipeline {
     await this.submitAttempts(run, again, false);
   }
   detach(run, a, error) {
-    for (const x of run.items) if (x.attemptId === a.id) { x.attemptId = null; if (error && a.purpose !== "repaint") { x.state = "failed"; x.error = error; } }
+    for (const x of this.allItems(run)) if (x.attemptId === a.id) { x.attemptId = null; if (error && a.purpose !== "repaint") { x.state = "failed"; x.error = error; } }
   }
 
   // ---------- ambiguous attempts: a person decides ----------
@@ -502,8 +526,9 @@ export class Pipeline {
   // Only deliverable files go to Drive (see core/gates.mjs), so the folder never holds one that
   // shouldn't run. A manual override is recorded per item and version.
   async stepDrive(run, list) {
+    this.syncComposed(run);
     list = list.filter((x) => x.state === "done" && x.file && !x.drive);
-    if (!list.length) return;
+    if (!list.length) { this.save(run); return; }
     for (const x of list) { const was = x.held; x.held = !this.gate(x).deliverable; if (x.held && !was) this.event("asset_held", run, x); }
     this.save(run);
     if (!this.drive || !this.drive.enabled || !run.saveDrive) return;
@@ -544,11 +569,223 @@ export class Pipeline {
     this.save(run);
   }
 
+  // ---------- composed sets ----------
+  async processComposed(run) {
+    try {
+      await this.stepSource(run);
+      if (!(run.S.source && run.S.source.file)) throw new PipelineError("source", "Couldn't download the product photo" + (run.S.source && run.S.source.fetchError ? " (" + run.S.source.fetchError + ")" : "") + ". Nothing was rendered or charged.");
+      await this.stepCutout(run);
+      await this.stepPreflight(run);
+      await this.stepScene(run);
+      await this.stepSceneFetch(run);
+      await this.stepSceneQa(run);
+      await this.stepCompose(run, run.items.filter((x) => !x.file && x.state !== "failed"));
+      await this.stepDrive(run, run.items.filter((x) => x.file && !x.drive));
+      run.status = run.items.some((x) => x.state === "failed") ? "partial" : "done";
+      this.log(run, run.status === "done" ? "Set finished." : "Set finished with a size missing.", run.status === "done" ? "ok" : "err");
+      this.obs.duration(Date.now() - run.ts); this.event("run_" + run.status, run, null);
+    } catch (e) {
+      const amb = e.code === "ambiguous";
+      run.status = amb ? "needs_decision" : "failed"; run.error = { code: e.code || "error", message: e.message };
+      const X = run.scene;
+      if (X && !this.liveAttempt(run, X) && X.state === "rendering" && !X.url) X.state = "failed";
+      this.log(run, (e.code === "needs_auth" ? "Higgsfield sign-in needed — " : "Stopped — ") + e.message, "err");
+      this.logger.error && this.logger.error("run", run.id, e.code, e.message);
+    }
+    this.save(run);
+  }
+
+  cutoutFile(run) { return this.store.filePath(run.id, "cutout.png"); }
+
+  // The real product photo with its background removed. Made once per product photo and reused;
+  // a person approves it once (or uploads their own), after which sets with it can auto-deliver.
+  async stepCutout(run) {
+    const have = run.cutout && run.cutout.sha && fs.existsSync(this.cutoutFile(run));
+    if (have) { const c = this.cutouts.get(run.cutout.sha); if (c) run.cutout.state = c.state; this.save(run); return; }
+    this.log(run, "Cutting the product out of its photo…");
+    const c = await this.cutouts.ensure(this.store.filePath(run.id, run.S.source.file), { python: this.cfg.python, model: this.cfg.cutoutModel });
+    run.cutout = { sha: c.sha, state: c.state, error: c.error || null };
+    if (c.state === "failed") {
+      this.save(run);
+      throw new PipelineError("cutout", "Couldn't cut the product out of its photo: " + c.error + ". Upload a PNG of the product with a transparent background, then press Resume. Nothing was rendered or charged.");
+    }
+    fs.copyFileSync(this.cutouts.png(c.sha), this.cutoutFile(run));
+    this.log(run, cutoutApproved(c) ? "Using the approved product cutout." : "Product cut out of its photo. Check it once (Approve cutout) — sets with this product are held until it's approved.", cutoutApproved(c) ? "ok" : "run");
+    this.save(run);
+  }
+
+  // Free: lay out every size with a placeholder scene. Copy that doesn't fit stops the set here,
+  // before any credits are spent.
+  async stepPreflight(run) {
+    if (run.preflight && run.preflight.ok) return;
+    if (!this.composer) throw new PipelineError("no_composer", "The ad composer isn't available on this server.");
+    this.log(run, "Checking the copy fits every size (free)…");
+    const product = imageUri(this.cutoutFile(run)), problems = [];
+    for (const x of run.items) {
+      try { await this.composer.compose(layoutFor(run.S.tpl, x.kind, run.form), { scene: null, product }, { screenshot: false }); }
+      catch (e) {
+        if (!(e instanceof ComposeError)) throw e;
+        problems.push(x.dims + ": " + e.message);
+      }
+    }
+    run.preflight = { ok: !problems.length, at: Date.now(), problems };
+    this.save(run);
+    if (problems.length) throw new PipelineError("layout", "The copy doesn't fit the template, so nothing was rendered or charged. " + problems.join(" ") + " Shorten it and generate again.");
+    this.log(run, "Copy fits all three sizes.", "ok");
+  }
+
+  // The ONE paid render of a composed set: the scene photograph, shared by all three sizes.
+  async stepScene(run) {
+    const X = run.scene;
+    if (X.url) return;
+    X.state = "rendering"; X.error = null;
+    this.log(run, this.liveAttempt(run, X) ? "Waiting for the scene photo Higgsfield already accepted…" : "Rendering the scene photo (one render for all three sizes, about " + this.cfg.creditsPerRender + " credits)…");
+    await this.renderItems(run, [X], () => sceneParams(run.S.scenePrompt, SCENE_ASPECT), "render");
+    if (!X.url) throw new PipelineError("render_failed", X.error || "The scene photo didn't render.");
+    this.log(run, "Scene photo done.", "ok");
+  }
+
+  async stepSceneFetch(run) {
+    const X = run.scene;
+    if (X.file) return;
+    const dir = this.store.runDir(run.id), raw = path.join(dir, "scene-v" + X.version + ".img");
+    await fetchRender(X.url, raw, { dataDir: this.cfg.dataDir });
+    if (!sniffImage(fs.readFileSync(raw))) throw new PipelineError("scene_bad", "The scene photo Higgsfield returned isn't a readable image.");
+    const thumb = path.join(dir, "scene-v" + X.version + "-preview.jpg");
+    await runPython(this.cfg.python, path.join(ROOT, "finishing", "thumb.py"), [raw, thumb, 1536], { timeoutMs: 60000 });
+    X.file = path.basename(raw); X.preview = path.basename(thumb); X.state = "done";
+    this.save(run);
+  }
+
+  // Vision check of the scene alone: no lettering, panels, faces or close-up devices. The ads' own
+  // text, logo and product are set by the app, so they don't need a model to check them.
+  async stepSceneQa(run) {
+    const X = run.scene;
+    if (X.qa && X.qa.state !== "error" && X.qa.version === X.version) return;
+    if (!this.llm) { X.qa = { state: "off", version: X.version }; this.save(run); return; }
+    this.log(run, "Checking the scene photo…");
+    X.qa = { state: "running", version: X.version }; this.save(run);
+    try {
+      const img = fs.readFileSync(this.store.filePath(run.id, X.preview));
+      const o = await this.llm.json({ prompt: sceneCheckPrompt(), images: [img], schema: SCENE_SCHEMA, model: this.cfg.llmQaModel, effort: "medium" });
+      const p = parseSceneCheck(o);
+      if (!p.ok) throw Object.assign(new Error(p.error), { code: "bad_reply" });
+      X.qa = { state: p.verdict, issues: p.issues, version: X.version };
+      this.log(run, "  Scene check: " + p.verdict + (p.issues.length ? " — " + p.issues.join("; ") : ""), p.verdict === "pass" ? "ok" : "err");
+      this.event("scene_" + p.verdict, run, X);
+    } catch (e) {
+      X.qa = { state: "error", code: e.code || "error", message: e.message, version: X.version };
+      this.log(run, "  Scene check couldn't run: " + e.message, "err");
+    }
+    this.save(run);
+  }
+
+  // Compose each size locally from the scene, the cutout and the copy. Free and repeatable.
+  async stepCompose(run, list) {
+    if (!list.length) return;
+    this.log(run, "Composing " + list.map((x) => x.dims).join(", ") + " — real product photo, brand type, CTA and logo…");
+    const product = imageUri(this.cutoutFile(run)), scene = imageUri(this.store.filePath(run.id, run.scene.file));
+    for (const x of list) {
+      const out = path.join(this.store.runDir(run.id), x.kind + "-v" + x.version + "-s" + run.scene.version + ".jpg");
+      x.state = "finishing"; this.save(run);
+      try {
+        const { report, result } = await composeToJpeg(this.composer, layoutFor(run.S.tpl, x.kind, run.form), { scene, product }, { python: this.cfg.python, out });
+        const v = validateOutput(out, x.W, x.H);
+        x.file = path.basename(out); x.flags = []; x.mode = "composed"; x.layout = { sizes: report.sizes };
+        x.output = result.ok && v.ok ? { ...v, quality: result.quality } : { ok: false, error: result.error || v.error || "output check failed", bytes: v.bytes };
+        x.state = "done"; x.qa = null; x.fidelity = null; x.drive = null; x.held = false; x.override = null; x.error = null;
+        this.log(run, "  " + x.dims + " — composed" + (x.output.ok ? " (" + Math.round(x.output.bytes / 1000) + " KB)" : " — output check failed: " + x.output.error), x.output.ok ? "run" : "err");
+      } catch (e) {
+        x.state = "failed"; x.error = "Composing failed: " + e.message;
+        this.log(run, "  " + x.dims + " — " + x.error, "err");
+      }
+    }
+    this.save(run);
+  }
+
+  // Copy the set-level approvals onto each size, for the delivery gate.
+  syncComposed(run) {
+    if (!run.S.composed) return;
+    for (const x of run.items) {
+      x.cutout = run.cutout ? { state: run.cutout.state, sha: run.cutout.sha } : null;
+      x.sceneQa = run.scene && run.scene.qa ? { ...run.scene.qa } : null;
+    }
+  }
+
+  // A person checked the cutout against the product photo: approved once, for every set using it.
+  approveCutout(id, { actor }) {
+    const run = this.store.getRun(id);
+    if (!run || !run.cutout || !run.cutout.sha || run.cutout.state === "failed") throw new PipelineError("bad_request", "This set has no product cutout to approve.");
+    const c = this.cutouts.approve(run.cutout.sha, actor);
+    run.cutout.state = c.state;
+    this.log(run, "Product cutout approved.", "ok");
+    this.save(run);
+    return this.saveToDrive(id);
+  }
+  // A person supplies their own cutout PNG: it replaces the automatic one, and the set is
+  // re-composed (free) or resumed if it stopped at the cutout.
+  async uploadCutout(id, png, { actor }) {
+    const run = this.store.getRun(id);
+    if (!run || !run.S.composed) throw new PipelineError("bad_request", "Only sets built from composed templates use a cutout.");
+    if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is busy. Try again when it stops.");
+    const sha = run.cutout && run.cutout.sha;
+    if (!sha) throw new PipelineError("bad_request", "This set hasn't got as far as the product photo yet.");
+    let c;
+    try { c = await this.cutouts.upload(sha, png, { python: this.cfg.python, actor }); }
+    catch (e) { throw new PipelineError("bad_request", e.message); }
+    fs.copyFileSync(this.cutouts.png(sha), this.cutoutFile(run));
+    run.cutout = { sha, state: c.state, error: null }; run.preflight = null;
+    this.log(run, "Product cutout replaced with an uploaded PNG.", "ok");
+    this.save(run);
+    if (run.scene && run.scene.file) return this.refinish(id);
+    return this.resume(id);
+  }
+  approveScene(id, { note, actor }) {
+    const run = this.store.getRun(id), q = run && run.scene && run.scene.qa;
+    if (!q || q.state !== "uncertain" || q.approved) throw new PipelineError("bad_request", "Only an uncertain scene check that hasn't been approved yet can be approved.");
+    q.approved = { at: Date.now(), actor: actor || null, note: String(note || "").slice(0, 300), version: q.version };
+    this.log(run, "Scene photo approved by a person.", "ok");
+    this.save(run);
+    return this.saveToDrive(id);
+  }
+
+  // Free preview of a composed template with the real product cutout and a placeholder scene.
+  // Nothing is rendered or charged; layout problems are returned (not thrown) so the page can
+  // show exactly what to shorten.
+  async preview({ form, picked }) {
+    if (!this.isComposed(form.tpl)) throw new PipelineError("bad_request", "The free preview is available for Template 1 so far.");
+    if (!this.composer) throw new PipelineError("no_composer", "The ad composer isn't available on this server.");
+    if (!picked || !picked.url) throw new PipelineError("bad_request", "Pick a product first.");
+    const dir = path.join(this.cfg.dataDir, "preview"); fs.mkdirSync(dir, { recursive: true });
+    const src = path.join(dir, crypto.randomBytes(8).toString("hex") + ".img");
+    let c;
+    try {
+      try { await this.fetchSource(picked.url, src); }
+      catch (e) { throw new PipelineError("bad_request", "Couldn't download the product photo: " + e.message); }
+      c = await this.cutouts.ensure(src, { python: this.cfg.python, model: this.cfg.cutoutModel });
+    } finally { try { fs.unlinkSync(src); } catch { /* none */ } }
+    const cutout = { sha: c.sha, state: c.state, error: c.error || null };
+    if (c.state === "failed") return { cutout, sizes: [] };
+    const product = imageUri(this.cutouts.png(c.sha)), sizes = [];
+    for (const kind of KINDS) {
+      const spec = layoutFor(form.tpl, kind, form);
+      try {
+        const r = await this.composer.compose(spec, { scene: null, product }, { allowInvalid: true, type: "jpeg", quality: 78 });
+        sizes.push({ kind, dims: CANVAS[kind].dims, image: "data:image/jpeg;base64," + r.png.toString("base64"), ok: r.report.ok, problems: r.report.errors.map((e) => e.message) });
+      } catch (e) {
+        if (!(e instanceof ComposeError)) throw e;
+        sizes.push({ kind, dims: CANVAS[kind].dims, image: null, ok: false, problems: e.errors.length ? e.errors.map((x) => x.message) : [e.message] });
+      }
+    }
+    return { cutout, sizes };
+  }
+
   // ---------- actions on a finished set ----------
   regenerate(id, kind) {
     const run = this.store.getRun(id);
     if (!run) throw new PipelineError("not_found", "No such set.");
-    if (kind === "master") {
+    if (kind === "master" || run.S.composed) {
+      // A new square (or, for composed sets, a new scene) means a new set: same settings, next folder.
       // A new square means a new set: same settings, next "(set n)" folder.
       const n = (run.setNo || 1) + 1;
       const next = this.create({ form: run.form, picked: run.picked, saveDrive: run.saveDrive, setNo: n,
@@ -583,8 +820,22 @@ export class Pipeline {
 
   // Re-run finishing on the renders already paid for (0 credits).
   refinish(id) {
+    const run0 = this.store.getRun(id);
+    if (!run0) throw new PipelineError("not_found", "No such set.");
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
+      if (r.S.composed) {
+        // Re-compose every size from the stored scene and cutout (0 credits).
+        if (!r.scene || !r.scene.file) return;
+        r.status = "running"; this.save(r);
+        await this.stepCutout(r);
+        for (const x of r.items) { x.file = null; if (x.state === "failed") x.state = "waiting"; }
+        await this.stepCompose(r, r.items);
+        await this.stepDrive(r, r.items.filter((x) => x.file));
+        r.status = r.items.some((x) => x.state === "failed") ? "partial" : "done";
+        this.save(r);
+        return;
+      }
       const list = r.items.filter((x) => x.url);
       for (const x of list) { x.file = null; x.repaired = x.repaired || false; }
       await this.stepFinish(r, list);
@@ -598,6 +849,11 @@ export class Pipeline {
   recheck(id, kind) {
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
+      if (r.S.composed) {
+        if (r.scene && r.scene.file) { r.scene.qa = null; await this.stepSceneQa(r); }
+        await this.stepDrive(r, r.items.filter((x) => x.file));
+        return;
+      }
       const list = r.items.filter((x) => x.file && (!kind || x.kind === kind));
       for (const x of list) { x.qa = null; x.fidelity = null; }
       await this.stepSource(r);

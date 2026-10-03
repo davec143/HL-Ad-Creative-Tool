@@ -1,6 +1,6 @@
 # ADR 0001: Deterministic brand composition (AI scene + locally rendered brand layer)
 
-- **Status:** Proposed. Not implemented. Blocked on font licensing and design assets (see *Preconditions*).
+- **Status:** Accepted and implemented for Template 1 (Oct 2026: `composer/`). Montserrat is bundled under the SIL Open Font License (`@fontsource/montserrat`). T2–T5 still use the prompt-driven pipeline until each is ported.
 - **Date:** 2026-10-02
 - **Deciders:** Marketing (owner), engineering
 

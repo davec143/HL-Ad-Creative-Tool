@@ -1,9 +1,12 @@
 # HitLights Ad Builder: one container, Node server + Python finishing.
 FROM node:22-bookworm-slim
 
+# chromium renders the brand layer of composed templates (composer/); fonts are bundled, so no
+# system fonts are needed beyond what the package pulls in.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+ && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium \
  && rm -rf /var/lib/apt/lists/*
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
@@ -12,10 +15,19 @@ COPY requirements.txt ./
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 ENV PYTHON=/opt/venv/bin/python
 
+# Background-removal model for product cutouts (IS-Net general use, from rembg's releases),
+# downloaded at build time and verified against its pinned SHA-256.
+ENV CUTOUT_MODEL=/opt/models/isnet-general-use.onnx
+RUN mkdir -p /opt/models && /opt/venv/bin/python -c "import hashlib,sys,urllib.request; \
+u='https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx'; \
+d=urllib.request.urlopen(u, timeout=300).read(); h=hashlib.sha256(d).hexdigest(); \
+sys.exit('model hash mismatch: '+h) if h!='60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a' else open('/opt/models/isnet-general-use.onnx','wb').write(d)"
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY core ./core
+COPY composer ./composer
 COPY server ./server
 COPY finishing ./finishing
 COPY web ./web

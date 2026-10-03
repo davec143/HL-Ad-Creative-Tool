@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import * as E from "../core/engine.mjs";
 import { SAMPLE, TPL_ORDER, KINDS, CANVAS } from "../core/brand.mjs";
+import { isComposed, COMPOSED_SCENE_TXT } from "../core/composed.mjs";
 
 const require = createRequire(import.meta.url);
 const { load, HTML_DEFAULTS } = require("../tools/legacy-harness.cjs");
@@ -17,6 +18,9 @@ const DEVIATIONS = {
   logoColour: { t2: ["violet", "black"] },
   // Terminology (Oct 2026): Andromeda is Meta's ad-retrieval system, not a three-size file spec.
   packHeader: [" to the Andromeda spec: one image ad, three sizes, one concept.", ": one image ad, three placement sizes, one concept."],
+  // Composed templates (Oct 2026): the drafted scene is the space and light only, never the product
+  // or hands, because the product is the real photo composited by the app (docs/adr/0001, 0003).
+  composedScene: ["scene — ONE sentence describing a photograph: who is in frame, what they are doing, where. Concrete and physical. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n", COMPOSED_SCENE_TXT],
 };
 function legacyGrid(tpl, kind) {
   const g = JSON.parse(JSON.stringify(H.gridSpec(tpl, kind)));
@@ -66,7 +70,9 @@ test("parity: draft brief, every template, with and without product data", async
       H.$("draft").fire("click");
       await new Promise((r) => setTimeout(r, 0));
       assert.ok(brief, "legacy draft fired");
-      assert.equal(E.draftBrief(tpl, product, angle), brief, tpl + " brief");
+      const want = isComposed(tpl) ? brief.replace(DEVIATIONS.composedScene[0], DEVIATIONS.composedScene[1]) : brief;
+      if (isComposed(tpl)) assert.ok(brief.includes(DEVIATIONS.composedScene[0]), "v16 scene instruction as documented");
+      assert.equal(E.draftBrief(tpl, product, angle), want, tpl + " brief");
     }
   }
   H.setSample(null); H.setPicked(null);

@@ -17,9 +17,13 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "hlab-ops-"));
 const PNG1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 test("self-check passes on a healthy setup and fails on a bad python or unwritable data dir", async () => {
-  const ok = await selfCheck(readConfig({ DATA_DIR: tmp(), PYTHON: PY, RENDERER: "fake" }));
+  // A stand-in for the cutout model (the check only looks for a plausibly sized file).
+  const model = path.join(tmp(), "model.onnx"); fs.writeFileSync(model, ""); fs.truncateSync(model, 11e6);
+  const ok = await selfCheck(readConfig({ DATA_DIR: tmp(), PYTHON: PY, RENDERER: "fake", CUTOUT_MODEL: model }));
   assert.equal(ok.ok, true, JSON.stringify(ok.checks));
-  assert.deepEqual(ok.checks.map((c) => c.name), ["data_dir_writable", "python_finishing", "logo_hashes", "finish_py_v16", "renderer_config"]);
+  assert.deepEqual(ok.checks.map((c) => c.name), ["data_dir_writable", "python_finishing", "logo_hashes", "finish_py_v16", "composer_browser", "cutout_model", "renderer_config"]);
+  const noModel = await selfCheck(readConfig({ DATA_DIR: tmp(), PYTHON: PY, RENDERER: "fake", CUTOUT_MODEL: path.join(tmp(), "missing.onnx") }));
+  assert.equal(noModel.checks.find((c) => c.name === "cutout_model").ok, false);
   const badPy = await selfCheck(readConfig({ DATA_DIR: tmp(), PYTHON: "/nonexistent/python", RENDERER: "fake" }));
   assert.equal(badPy.checks.find((c) => c.name === "python_finishing").ok, false);
   const file = path.join(tmp(), "not-a-dir"); fs.writeFileSync(file, "x");
@@ -44,7 +48,7 @@ test("instance lock: a second live instance is refused; a stale lock is taken ov
 
 function setup(drive) {
   const dir = tmp(), store = new Store(dir), lines = [];
-  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, REQUIRE_PRODUCT_FIDELITY: "0" });
+  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, REQUIRE_PRODUCT_FIDELITY: "0", COMPOSED_TEMPLATES: "" });
   const llm = { name: "m", json: async () => ({ images: ["1080x1080", "1080x1920", "1200x628"].map((size) => ({ size, verdict: "pass", issues: [] })) }) };
   const obs = new Obs({ store, write: (l) => lines.push(JSON.parse(l)) });
   const pipeline = new Pipeline({ cfg, store, renderer: new FakeRenderer({ store, python: PY }), llm, drive, obs, log: { error() {} }, sleep: async () => {}, fetchSource: async (u, d) => { fs.writeFileSync(d, PNG1); return { sha256: "x", bytes: 1 }; } });

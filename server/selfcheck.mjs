@@ -5,6 +5,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { ROOT } from "./config.mjs";
 import { runPython } from "./py.mjs";
+import { chromiumPath, Composer } from "../composer/render.mjs";
+import { layoutFor } from "../composer/templates.mjs";
+import { SAMPLE } from "../core/brand.mjs";
 
 const sha = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
@@ -37,7 +40,20 @@ export async function selfCheck(cfg) {
     const want = fs.readFileSync(path.join(ROOT, "finishing", "FINISH_PY_SHA256"), "utf8").split(/\s+/)[0];
     add("finish_py_v16", sha(path.join(ROOT, "finishing", "finish.py")) === want);
   } catch (e) { add("finish_py_v16", false, e.code || "error"); }
-  // 5. Renderer configuration.
+  // 5. Composed templates: a browser that renders the brand layer with the bundled fonts, and the
+  //    product-cutout model. A real layout of the sample copy is rendered as the proof.
+  const composer = new Composer();
+  try {
+    if (!chromiumPath()) throw new Error("Chromium not found");
+    const tiny = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const r = await composer.compose(layoutFor("t1", "master", SAMPLE.t1 || {}), { scene: null, product: tiny }, { screenshot: false, allowInvalid: true });
+    const bad = r.report.errors.filter((e) => e.code === "FONT");
+    add("composer_browser", !bad.length, bad.map((e) => e.message).join(" "));
+  } catch (e) { add("composer_browser", false, String(e.message).slice(0, 120)); }
+  finally { await composer.close(); }
+  try { add("cutout_model", fs.statSync(cfg.cutoutModel).size > 1e7, cfg.cutoutModel); }
+  catch { add("cutout_model", false, "missing: " + cfg.cutoutModel); }
+  // 6. Renderer configuration.
   add("renderer_config", ["higgsfield-mcp", "fake"].includes(cfg.renderer) && (cfg.renderer !== "higgsfield-mcp" || /^https:\/\//.test(cfg.higgsfieldMcpUrl)), cfg.renderer);
   if (cfg.production) add("renderer_not_fake_in_production", cfg.renderer !== "fake", cfg.renderer);
   return { ok: checks.every((c) => c.ok), checks };

@@ -13,6 +13,7 @@ import { Drive } from "./providers/drive.mjs";
 import { createApp } from "./app.mjs";
 import { selfCheck, InstanceLock } from "./selfcheck.mjs";
 import { Obs } from "./obs.mjs";
+import { Composer } from "../composer/render.mjs";
 
 const SHUTDOWN_GRACE_MS = Number(process.env.SHUTDOWN_GRACE_MS || 20000);
 
@@ -39,7 +40,8 @@ const llm = makeLlm(cfg);
 let drive = null;
 try { drive = new Drive({ serviceAccountJson: cfg.driveServiceAccount, parentId: cfg.driveParent }); }
 catch (e) { warnings.push(e.message); obs.log("warn", "drive_config", { message: e.message }); }
-const pipeline = new Pipeline({ cfg, store, renderer, llm, drive, obs: new Obs({ store }), log: { error: (...a) => obs.log("error", "pipeline", { detail: a.join(" ").slice(0, 300) }) } });
+const composer = new Composer();
+const pipeline = new Pipeline({ cfg, store, renderer, llm, drive, composer, obs: new Obs({ store }), log: { error: (...a) => obs.log("error", "pipeline", { detail: a.join(" ").slice(0, 300) }) } });
 
 let shuttingDown = false;
 const readiness = async () => ({ ok: check.ok && !shuttingDown, shuttingDown, checks: check.checks.map((c) => ({ name: c.name, ok: c.ok })) });
@@ -59,6 +61,7 @@ async function shutdown(signal) {
   // Let the current step reach a saved state (every step persists before and after external calls).
   await Promise.race([pipeline.idle(), new Promise((r) => setTimeout(r, SHUTDOWN_GRACE_MS).unref())]);
   try { await renderer.close(); } catch { /* best effort */ }
+  try { await composer.close(); } catch { /* best effort */ }
   lock.release();
   obs.log("info", "shutdown_done", { signal, busy: pipeline.busy() || undefined });
   // No process.exit(): the event loop drains and Node exits on its own. A hard stop is the platform's.

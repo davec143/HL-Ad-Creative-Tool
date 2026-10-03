@@ -1,6 +1,6 @@
 # ADR 0003: Deterministic product cutouts over AI scenes
 
-- **Status:** Investigation. The current gate is a vision-model fidelity check with human approval for "uncertain" (Phase 6).
+- **Status:** Accepted and implemented for Template 1 (Oct 2026). Cutouts are made locally with IS-Net (`finishing/cutout.py`), stored per product-photo hash, approved once by a person (or replaced with an uploaded PNG). The first live test (Oct 2026) confirmed the motivation: every AI-redrawn product had garbled printed labels.
 - **Date:** 2026-10-02
 
 ## Context

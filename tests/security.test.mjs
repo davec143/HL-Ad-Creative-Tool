@@ -19,7 +19,7 @@ const SECRET = "x".repeat(48);
 
 async function boot(env = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hlab-sec-"));
-  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, APP_PASSWORD: "correct horse battery", SESSION_SECRET: SECRET, ...env });
+  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, APP_PASSWORD: "correct horse battery", SESSION_SECRET: SECRET, COMPOSED_TEMPLATES: "", ...env });
   const store = new Store(dir);
   const renderer = new FakeRenderer({ store, python: PY });
   const pipeline = new Pipeline({ cfg, store, renderer, llm: null, drive: null, log: { error() {} } });

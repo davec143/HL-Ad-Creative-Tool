@@ -1,6 +1,16 @@
 # HitLights Ad Builder — Standalone App Plan
 
-## Current state (Oct 2, 2026; branch `claude/hardening-15a789c`)
+## Current state (Oct 3, 2026; branch `claude/hardening-15a789c`)
+
+**First live test (Oct 3, one T1 set, about 6 credits).** The full chain worked: Shopify, OpenAI, Higgsfield, finishing, checks. The gates correctly held all three files:
+- the image model drew a box around the logo zone, or put the headline under the logo;
+- it garbled the product's printed labels.
+
+Prompting can't make this reliable. **Template 1 is now composed** (ADR 0001 + 0003):
+- Higgsfield renders one scene photo per set (about 2 credits instead of 6);
+- the app sets the real product cutout, the copy, the CTA and the logo in Chromium from fixed layouts.
+
+**Status:** implemented and tested with the fake renderer and the real cutout model; not yet live.
 
 **Scope:** image ads only. One concept per set at three **placement sizes** (1080×1080, 1080×1920, 1200×628). That is placement coverage, not creative diversity: see `docs/CREATIVE_DIVERSITY.md`. Video is planned only (`VIDEO_PLAN.md`).
 
@@ -15,6 +25,7 @@
 | Shopify variants | ✅ Query validated against the Shopify Admin schema | Mocked contract tests | ❌ Not run against the store (sandbox network blocked) |
 | Google Drive delivery + idempotency | ✅ | Mocked Drive tests | ❌ No service account configured |
 | Auth & security (sessions, CSRF, limiter, CSP) | ✅ | HTTP tests | ⚠️ The earlier version is deployed on Railway; this branch isn't yet |
+| Composed T1 (cutout, layout check, scene render, scene check, compose) | ✅ | 15 Node tests with real Chromium + 4 Python tests; UI driven end to end in a browser with the real cutout model | ❌ Not yet on a real scene render |
 | Ops (self-check, lock, graceful shutdown, logs, metrics) | ✅ | Tests + local start/stop | ❌ Docker image built only in CI (no Docker daemon in the dev sandbox) |
 
 ### Safety guarantees, stated precisely

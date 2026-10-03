@@ -19,7 +19,7 @@ const form = (tpl = "t1") => ({ tpl, ...SAMPLE[tpl], phone: "+1 855 768 4135", e
 
 function setup(cfgOver = {}, { dir, renderer } = {}) {
   dir = dir || fs.mkdtempSync(path.join(os.tmpdir(), "hlab-safe-"));
-  const cfg = { ...readConfig({ DATA_DIR: dir, PYTHON: PY }), ...cfgOver };
+  const cfg = { ...readConfig({ DATA_DIR: dir, PYTHON: PY, COMPOSED_TEMPLATES: "" }), ...cfgOver };
   const store = new Store(dir);
   renderer = renderer || new FakeRenderer({ store, python: PY });
   const pipeline = new Pipeline({ cfg, store, renderer, llm: null, drive: null, log: quiet, sleep: async () => {} });

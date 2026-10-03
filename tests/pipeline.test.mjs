@@ -20,7 +20,7 @@ async function fakeSource(url, dest) { fs.writeFileSync(dest, PNG1); return { sh
 
 function setup({ fault = "", llm = null, drive = null, cfgOver = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hlab-"));
-  const cfg = { ...readConfig({ DATA_DIR: dir, PYTHON: PY }), ...cfgOver };
+  const cfg = { ...readConfig({ DATA_DIR: dir, PYTHON: PY, COMPOSED_TEMPLATES: "" }), ...cfgOver };
   const store = new Store(dir);
   const renderer = new FakeRenderer({ store, python: PY, fault });
   const pipeline = new Pipeline({ cfg, store, renderer, llm, drive, log: quiet, fetchSource: fakeSource });

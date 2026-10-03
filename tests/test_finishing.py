@@ -205,3 +205,51 @@ def test_corrupt_input_fails_cleanly(tmp_path):
     assert r.returncode != 0
     assert not out.exists()
     assert "RESULT" not in r.stdout
+
+
+# ---------- composed templates: encode.py and cutout.py ----------
+def _run(script, *args):
+    import subprocess
+    out = subprocess.run([sys.executable, os.path.join(ROOT, "finishing", script), *map(str, args)], capture_output=True, text=True, check=True).stdout
+    line = [l for l in out.splitlines() if l.startswith("RESULT ")][-1]
+    return json.loads(line[7:])
+
+
+def test_encode_meets_the_delivery_contract_even_for_a_noisy_image(tmp_path):
+    rng = np.random.default_rng(3)
+    src = tmp_path / "in.png"
+    Image.fromarray(rng.integers(0, 255, (1920, 1080, 3), dtype=np.uint8)).save(src)
+    r = _run("encode.py", src, tmp_path / "out.jpg", 1080, 1920)
+    assert r["ok"] or "can't get under" in r["error"]
+    smooth = tmp_path / "smooth.png"
+    Image.new("RGB", (1080, 1080), (82, 56, 117)).save(smooth)
+    r = _run("encode.py", smooth, tmp_path / "s.jpg", 1080, 1080)
+    assert r["ok"] and r["bytes"] <= 460000 and r["quality"] == 92
+    with Image.open(tmp_path / "s.jpg") as im:
+        assert im.size == (1080, 1080)
+
+
+def test_encode_refuses_the_wrong_size(tmp_path):
+    src = tmp_path / "in.png"
+    Image.new("RGB", (1000, 1000)).save(src)
+    r = _run("encode.py", src, tmp_path / "o.jpg", 1080, 1080)
+    assert not r["ok"] and "expected 1080x1080" in r["error"]
+
+
+def test_cutout_uses_a_supplied_transparent_png_as_is_and_trims_it(tmp_path):
+    im = Image.new("RGBA", (800, 800), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rectangle((300, 200, 500, 700), fill=(240, 240, 240, 255))
+    src = tmp_path / "p.png"; im.save(src)
+    r = _run("cutout.py", src, tmp_path / "c.png", "/nonexistent.onnx")
+    assert r["ok"] and r["source"] == "supplied"
+    with Image.open(tmp_path / "c.png") as c:
+        assert c.mode == "RGBA" and c.width < 300 and c.height < 560
+        # the product's own pixels are untouched
+        assert c.getpixel((c.width // 2, c.height // 2)) == (240, 240, 240, 255)
+
+
+def test_cutout_without_the_model_says_so(tmp_path):
+    src = tmp_path / "p.jpg"
+    Image.new("RGB", (400, 400), (255, 255, 255)).save(src)
+    r = _run("cutout.py", src, tmp_path / "c.png", "/nonexistent.onnx")
+    assert not r["ok"] and "model" in r["error"]

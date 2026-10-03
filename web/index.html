@@ -130,9 +130,9 @@
           </div>
           <p class="hint" id="contactHint" style="margin:-6px 0 14px">Shown as the ad's contact line. Clear either one to leave it out.</p>
           <div class="f">
-            <label for="scene">The shot — what's happening in the photo</label>
+            <label for="scene" id="sceneLabel">The shot — what's happening in the photo</label>
             <textarea id="scene"></textarea>
-            <p class="hint">Describe a real scene. The product itself is carried over from the image above.</p>
+            <p class="hint" id="sceneHint">Describe a real scene. The product itself is carried over from the image above.</p>
           </div>
         </div>
       </div>
@@ -144,9 +144,15 @@
             <input type="checkbox" id="saveDrive" checked>
             <span><b>Also</b> save to Google Drive — a new dated folder per set. Only files that pass every check are saved. Either way the three finished files appear under Output with download buttons.</span>
           </label>
+          <div class="rowbtn" id="previewRow" hidden>
+            <button class="btn-quiet" id="previewBtn" type="button">Preview free (0 credits)</button>
+            <span class="hint">The real product, your copy and the logo, laid out at all three sizes with a placeholder photo.</span>
+          </div>
+          <div id="preview" hidden></div>
           <button class="btn-gold" id="go">Generate the three sizes</button>
           <p id="cost"></p>
-          <p class="bhint">Square renders first, then portrait and landscape are built <em>from it</em> — that's what keeps all three the same image. Each finished file is then checked: logo on the grid, brand colour, and every line of text is read back. Takes a few minutes; you can close the tab and come back.</p>
+          <p class="bhint" id="howComposed" hidden>Higgsfield renders <em>one</em> scene photo. The app then builds all three sizes from your template: the real product photo (background removed), your exact copy in Montserrat, the gold CTA and the real logo, so nothing is redrawn or misspelled. The copy is checked to fit before any credits are spent; the scene photo is checked for stray text, panels or faces.</p>
+          <p class="bhint" id="howLegacy">Square renders first, then portrait and landscape are built <em>from it</em> — that's what keeps all three the same image. Each finished file is then checked: logo on the grid, brand colour, and every line of text is read back. Takes a few minutes; you can close the tab and come back.</p>
           <div class="bsep">
             <button class="btn-quiet" id="packbtn" type="button">Build the prompt pack instead</button>
             <p class="bhint" id="packhint">Gives you the exact prompts to render by hand if Higgsfield isn't reachable from here.</p>

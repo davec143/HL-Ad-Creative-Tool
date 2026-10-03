@@ -8,6 +8,7 @@
 import {
   BRAND, TPL, LIMITS, CANVAS, KINDS, LOGOGRID, FIELD, SAFE_TOP, LOGO_AR, LOGOWHERE, ARFOR,
 } from "./brand.mjs";
+import { isComposed, COMPOSED_SCENE_TXT } from "./composed.mjs";
 
 export const FORM_FIELDS = ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "phone", "email", "deadline", "scene", "angle"];
 
@@ -213,7 +214,7 @@ export function draftBrief(tplId, product, angle) {
   const T = tplOf(tplId), reg = T.register;
   let writeTxt = WRITE_TXT[tplId] || "";
   if (!T.sub) writeTxt += "sub — return an empty string; this template has no subheadline.\n";
-  const sceneTxt = reg === "promo"
+  const sceneTxt = isComposed(tplId) ? COMPOSED_SCENE_TXT : reg === "promo"
     ? "scene — ONE sentence describing the setting behind an angled product flat-lay: the surface it rests on and the softly lit room behind. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n"
     : "scene — ONE sentence describing a photograph: who is in frame, what they are doing, where. Concrete and physical. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n";
   return "You write Meta ad creative for HitLights, a California LED lighting supplier selling UL-listed LED strip, dimmers, drivers and accessories to electricians, contractors, commercial specifiers and homeowners.\n\n" +

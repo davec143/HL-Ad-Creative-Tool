@@ -16,7 +16,7 @@ const PY = process.env.PYTHON || (fs.existsSync(path.join(ROOT, ".venv/bin/pytho
 
 async function boot(env = {}, over = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hlab-app-"));
-  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, ...env });
+  const cfg = readConfig({ DATA_DIR: dir, PYTHON: PY, COMPOSED_TEMPLATES: "", ...env });
   const store = new Store(dir);
   const renderer = over.renderer || new FakeRenderer({ store, python: PY });
   const pipeline = new Pipeline({ cfg, store, renderer, llm: null, drive: null, log: { error() {} } });

@@ -1,5 +1,6 @@
 // All runtime configuration comes from environment variables (see .env.example).
 // Nothing account-specific is hard-coded anywhere else.
+import { COMPOSED_TEMPLATES } from "../core/composed.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,11 @@ export function readConfig(env = process.env) {
     maxCreditsPerRun: num(env.MAX_CREDITS_PER_RUN, 12),
     maxCreditsPerDay: num(env.MAX_CREDITS_PER_DAY, 120),
     renderTimeoutMs: num(env.RENDER_TIMEOUT_MS, 7 * 60 * 1000),
+    // Composed templates: background-removal model for product cutouts (baked into the image).
+    cutoutModel: env.CUTOUT_MODEL || "/opt/models/isnet-general-use.onnx",
+    // Which templates use the composer. Unset = the built-in list (core/composed.mjs); set it to an
+    // empty value to send every template down the original prompt-driven pipeline.
+    composedTemplates: env.COMPOSED_TEMPLATES == null ? [...COMPOSED_TEMPLATES] : String(env.COMPOSED_TEMPLATES).split(",").map((s) => s.trim()).filter((s) => COMPOSED_TEMPLATES.includes(s)),
 
     // Product catalog.
     shopifyStore: (env.SHOPIFY_STORE || "").replace(/^https?:\/\//, "").replace(/\/+$/, ""),

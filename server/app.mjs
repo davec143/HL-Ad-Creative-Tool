@@ -14,7 +14,7 @@ import { Sessions, LoginLimiter, parseCookies, originOk, checkImageUrl, security
 
 const STATIC = {
   "/": "web/index.html", "/app.js": "web/app.js", "/styles.css": "web/styles.css",
-  "/core/engine.mjs": "core/engine.mjs", "/core/brand.mjs": "core/brand.mjs",
+  "/core/engine.mjs": "core/engine.mjs", "/core/brand.mjs": "core/brand.mjs", "/core/composed.mjs": "core/composed.mjs",
   "/assets/logos/hitlights-logo-white.png": "assets/logos/hitlights-logo-white.png",
   "/assets/logos/hitlights-logo-black.png": "assets/logos/hitlights-logo-black.png",
   "/assets/logos/hitlights-mark.png": "assets/logos/hitlights-mark.png",
@@ -47,10 +47,14 @@ export function publicRun(r, opts = {}) {
     id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo,
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
     source: r.S.source ? { sku: r.S.source.sku, variantTitle: r.S.source.variantTitle, price: r.S.source.price, stock: r.S.source.stock, imageSource: r.S.source.imageSource, sha256: r.S.source.sha256 || null, kept: !!r.S.source.file, error: r.S.source.fetchError || null } : null,
+    composed: !!r.S.composed,
+    scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene` : null } : null,
+    cutout: r.cutout ? { sha: r.cutout.sha || null, state: r.cutout.state, error: r.cutout.error || null, image: r.cutout.sha && r.cutout.state !== "failed" ? `/api/cutouts/${r.cutout.sha}` : null } : null,
+    preflight: r.preflight || null,
     driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
     attempts: (r.attempts || []).map((a) => ({ id: a.id, kind: a.kind, version: a.version, purpose: a.purpose, state: a.state, jobId: a.jobId, error: a.error, submittedAt: a.submittedAt, resolution: a.resolution || null, retryOf: a.retryOf })),
     items: r.items.map((x) => ({
-      kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error, attemptId: x.attemptId || null,
+      kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error, attemptId: x.attemptId || null, composed: !!x.composed,
       flags: x.flags, blocking: blockingFlags(x), mode: x.mode, at: x.at || null, grid: { x: x.logo.x, y: x.logo.y, where: x.logo.where },
       qa: x.qa, fidelity: x.fidelity || null, held: x.held, drive: x.drive, output: x.output || null,
       override: x.override ? { at: x.override.at, reason: x.override.reason, actor: x.override.actor, version: x.override.version } : null,
@@ -74,9 +78,9 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   };
   const cookieAttrs = (maxAge) => `; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${https ? "; Secure" : ""}`;
 
-  async function body(req) {
+  async function body(req, limit = 1e6) {
     const chunks = []; let n = 0;
-    for await (const c of req) { n += c.length; if (n > 1e6) throw new HttpError(413, "Request too large."); chunks.push(c); }
+    for await (const c of req) { n += c.length; if (n > limit) throw new HttpError(413, "Request too large."); chunks.push(c); }
     if (!n) return {};
     try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new HttpError(400, "Invalid JSON."); }
   }
@@ -139,6 +143,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
         balance, creditsPerRender: cfg.creditsPerRender, creditsToday: store.creditsToday(), caps: { perRun: cfg.maxCreditsPerRun, perDay: cfg.maxCreditsPerDay },
         shopify: shopify.enabled, llm: llm ? { name: llm.name, draftModel: cfg.llmDraftModel, qaModel: cfg.llmQaModel } : null,
         drive: drive && drive.enabled ? { email: drive.email } : null, warnings, busy: pipeline.busy(),
+        composed: Object.keys(TPL).filter((t) => pipeline.isComposed(t)),
       });
     }],
 
@@ -177,7 +182,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
       if (pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
       if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
-      const need = 3 * cfg.creditsPerRender;
+      const need = (pipeline.isComposed(form.tpl) ? 1 : 3) * cfg.creditsPerRender;
       const st = await renderer.status();
       if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first (see the banner at the top).", "needs_auth");
       if (!st.connected) throw new HttpError(502, "Higgsfield isn't reachable right now. " + (st.error || ""), "renderer_down");
@@ -242,6 +247,61 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       const h = { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" };
       if (url.searchParams.get("dl")) h["Content-Disposition"] = `attachment; filename="${fileName(x)}"`;
       res.writeHead(200, h); res.end(data);
+    }],
+
+    // ---- composed templates: free preview, product cutouts, scene photo ----
+    ["POST", /^\/api\/preview$/, async (req, res) => {
+      const b = await body(req), form = cleanForm(b.form), picked = cleanPicked(b.picked);
+      if (b.picked && b.picked.url && !picked.url) throw new HttpError(400, picked.urlError, "bad_url");
+      try { send(res, 200, await pipeline.preview({ form, picked })); }
+      catch (e) { throw pipelineHttp(e); }
+    }],
+
+    ["GET", /^\/api\/cutouts\/([0-9a-f]{64})$/, async (req, res, m) => {
+      const c = pipeline.cutouts.get(m[1]);
+      if (!c) throw new HttpError(404, "No such cutout.");
+      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-cache" });
+      res.end(fs.readFileSync(pipeline.cutouts.png(m[1])));
+    }],
+
+    ["POST", /^\/api\/cutouts\/([0-9a-f]{64})\/approve$/, async (req, res, m) => {
+      const b = await body(req);
+      if (b.confirm !== true) throw new HttpError(400, "Confirm you compared the cutout with the product photo.", "confirm");
+      if (!pipeline.cutouts.get(m[1])) throw new HttpError(404, "No such cutout.");
+      const c = pipeline.cutouts.approve(m[1], actorOf(req));
+      let run = null;
+      if (b.runId) { runOr404(b.runId); try { run = publicRun(pipeline.approveCutout(b.runId, { actor: actorOf(req) }), PR); } catch (e) { throw pipelineHttp(e); } }
+      send(res, 200, { cutout: { sha: c.sha, state: c.state }, run });
+    }],
+
+    // A person's own cutout: {png: base64} of a PNG with a transparent background.
+    ["POST", /^\/api\/cutouts\/([0-9a-f]{64})\/upload$/, async (req, res, m) => {
+      const b = await body(req, 16e6);
+      const png = Buffer.from(String(b.png || ""), "base64");
+      if (!png.length) throw new HttpError(400, "No image received.");
+      if (b.runId) {
+        const r = runOr404(b.runId);
+        if (!r.cutout || r.cutout.sha !== m[1]) throw new HttpError(400, "That cutout doesn't belong to this set.");
+        try { send(res, 200, { run: publicRun(await pipeline.uploadCutout(b.runId, png, { actor: actorOf(req) }), PR) }); }
+        catch (e) { throw pipelineHttp(e); }
+        return;
+      }
+      try { const c = await pipeline.cutouts.upload(m[1], png, { python: cfg.python, actor: actorOf(req) }); send(res, 200, { cutout: { sha: c.sha, state: c.state } }); }
+      catch (e) { throw new HttpError(400, e.message); }
+    }],
+
+    ["GET", /^\/api\/runs\/([a-z0-9]+)\/scene$/, async (req, res, m) => {
+      const r = runOr404(m[1]);
+      if (!r.scene || !r.scene.preview) throw new HttpError(404, "No scene photo yet.");
+      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" });
+      res.end(fs.readFileSync(store.filePath(r.id, r.scene.preview)));
+    }],
+
+    ["POST", /^\/api\/runs\/([a-z0-9]+)\/scene\/approve$/, async (req, res, m) => {
+      const b = await body(req); runOr404(m[1]);
+      if (b.confirm !== true) throw new HttpError(400, "Confirm you looked at the scene photo.", "confirm");
+      try { send(res, 202, { run: publicRun(pipeline.approveScene(m[1], { note: b.note, actor: actorOf(req) }), PR) }); }
+      catch (e) { throw pipelineHttp(e); }
     }],
 
     ["GET", /^\/api\/runs\/([a-z0-9]+)\/source$/, async (req, res, m) => {

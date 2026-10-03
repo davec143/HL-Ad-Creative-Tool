@@ -1,3 +1,5 @@
 # Finishing runtime (finishing/process.py + finish.py). Pinned for reproducible output.
 numpy==2.4.6
 pillow==12.3.0
+# Product cutouts (finishing/cutout.py): IS-Net background removal on CPU.
+onnxruntime==1.30.0

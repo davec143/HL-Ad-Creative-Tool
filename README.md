@@ -8,6 +8,31 @@ A standalone web app that turns one Shopify product (an exact variant) and a sho
 
 ## How a set is made
 
+### Template 1: composed (the image model never draws the ad)
+
+1. **Product.** Same as below: an exact Shopify variant, frozen into the set.
+2. **Cutout.** The product photo's background is removed locally (IS-Net, free). The photo's own pixels are kept, so the hardware is exact. A person checks each cutout **once** (or uploads their own PNG); after that, every set with that photo can auto-deliver.
+3. **Free layout check.** All three sizes are laid out before anything is paid for. Copy that doesn't fit fails here, with the field named.
+4. **One paid render.** Higgsfield renders **one scene photograph** (no text, product, logo or panels). About 2 credits, shared by all three sizes.
+5. **Scene check.** A vision model checks the photo alone for stray lettering, panels, faces or close-up devices.
+6. **Compose** (`composer/`, headless Chromium). The app builds each size from the template:
+   - the real logo on the Logo Grid;
+   - your exact copy in Montserrat, fitted to its box;
+   - the gold CTA pill and the trust seal;
+   - the cutout and the scene.
+
+   Then it encodes to ≤ 460 KB. Re-composing is free.
+7. **Deliver.** A file is delivered automatically only when:
+   - the output is valid;
+   - the cutout is approved;
+   - the scene check passed.
+
+**Try it free first:** *Preview free (0 credits)* lays out all three sizes with the real product and a placeholder photo.
+
+`COMPOSED_TEMPLATES` controls which templates use this path. Set it to empty to send T1 back to the original pipeline below.
+
+### Templates 2–5: prompt-driven (v16)
+
 1. **Product.** Shopify search (active products) → pick the exact **variant**. Its image, SKU, price and stock (in stock / out of stock / unknown / not tracked) are frozen into the set. Or paste an https image URL (marked "external").
 2. **Copy.** Typed by hand, or drafted by *Write it for me* within each template's length limits. A fact guard keeps out any figure, price, percentage, certification or offer that isn't in the product data.
 3. **Render.** Higgsfield Nano Banana Pro, 2K: the 1:1 master first, then 9:16 and 16:9 rendered *from the master* plus the product photo.
@@ -34,6 +59,8 @@ Higgsfield has no idempotency key, so the app never claims exactly-once.
 | Path | What |
 |---|---|
 | `core/brand.mjs` | Brand system, 5 templates, Logo Grid, copy limits. Extracted verbatim from v16. |
+| `composer/` | Composed templates: layouts (`templates.mjs`), the page and its fit/overlap/safe-zone checks (`page.mjs`), the Chromium renderer (`render.mjs`). |
+| `core/scene.mjs`, `core/composed.mjs` | Scene-photo prompt and check; which templates are composed. |
 | `core/engine.mjs` | Prompts, grid specs, limits, draft/QA briefs. Pure functions shared by page and server. |
 | `core/gates.mjs` | The single delivery decision (passed / held / unchecked / failed / overridden). |
 | `core/fidelity.mjs`, `core/facts.mjs` | Product-fidelity prompt + parsing; drafting fact guard. |
@@ -77,6 +104,7 @@ Everything is set with environment variables. See `.env.example`.
 | Catalog | `SHOPIFY_STORE`, `SHOPIFY_ADMIN_TOKEN` (scopes `read_products`, `read_inventory`) |
 | Checks | `LLM_PROVIDER`: `openai` (`OPENAI_API_KEY`; `gpt-5.6-luna` for both drafts and checks), `anthropic` (`ANTHROPIC_API_KEY`; `claude-haiku-4-5` drafts, `claude-sonnet-5-5` checks), `openai-compatible` (Gemini, OpenRouter…), or `none`. `LLM_DRAFT_MODEL` / `LLM_QA_MODEL` override the models, `REQUIRE_PRODUCT_FIDELITY` (default on) |
 | Drive | `GOOGLE_SERVICE_ACCOUNT_JSON`, `DRIVE_PARENT` |
+| Composed templates | `COMPOSED_TEMPLATES` (default `t1`; empty = all prompt-driven), `CUTOUT_MODEL` (set by the Docker image), `CHROMIUM_PATH` (set by the Docker image) |
 
 **Without an LLM, nothing is delivered automatically.** The checks are off, so every file is *unchecked* and needs a recorded override.
 

@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 RENDER = {"master": (2048, 2048), "portrait": (1536, 2752), "landscape": (2752, 1536)}
+SCENE = (2048, 2048)  # composed templates: the scene photograph only
 
 
 def hexrgb(h):
@@ -42,8 +43,17 @@ def pill(d, cx, cy, w, h, fill=(235, 168, 0), text=True):
 
 def render(tpl, kind, fault=None, zone=None):
     """Draw a render in the style of the template, in RENDER frame coordinates."""
-    W, H = RENDER[kind]
+    W, H = SCENE if kind == "scene" else RENDER[kind]
     s = min(W, H) / 1080.0
+    if kind == "scene":  # a scene photograph only (composed templates): warm interior, cove glow
+        im = smooth_photo(W, H, (58, 50, 44), (128, 112, 96), seed=7)
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, int(H * .30), W, int(H * .31)), fill=(255, 214, 150))
+        d.rectangle((int(W * .1), int(H * .62), int(W * .9), int(H * .66)), fill=(92, 78, 66))
+        if fault == "scenetext":  # lettering the scene must not contain
+            for i in range(int(W * .3), int(W * .7), int(24 * s)):
+                d.rectangle((i, int(H * .45), i + int(10 * s), int(H * .5)), fill=(250, 250, 250))
+        return im
     if tpl == "t1":
         im = Image.new("RGB", (W, H), (86, 58, 122))  # violet drifted a few shades from #523875
         d = ImageDraw.Draw(im)

@@ -7,6 +7,11 @@
 //   decodes), no blocking flag, the text & logo check explicitly passed, and the product-fidelity
 //   check explicitly passed (or a person approved an "uncertain" result).
 // QA that is off, missing, running or errored is never treated as clean.
+//
+// Composed ads (composer/: the app sets the text, CTA, logo and the real product photo) are
+// gated differently, because those parts are exact by construction: the file must pass output
+// validation, the product cutout must have been approved by a person (once per product photo),
+// and the scene photograph must pass its check (or a person approved an "uncertain" result).
 
 import { FLAGTXT } from "./brand.mjs";
 
@@ -30,6 +35,7 @@ export function deliverability(x, { requireFidelity = false } = {}) {
   if (x.state !== "done") return { status: "pending", deliverable: false, reasons: ["Not finished yet."] };
   const reasons = [];
   let unchecked = false;
+  if (x.composed) return composedGate(x, reasons);
   if (!x.file) reasons.push("No finished file.");
   if (!x.output || x.output.ok !== true) reasons.push("The finished file failed validation" + (x.output && x.output.error ? ": " + x.output.error : "."));
   for (const f of x.flags || []) if (BLOCKING_FLAGS.includes(f)) reasons.push(f + ": " + (FLAG_REASON[f] || "Blocking flag."));
@@ -50,6 +56,28 @@ export function deliverability(x, { requireFidelity = false } = {}) {
     else if (fq.state === "fail") { if (!(x.flags || []).includes("FIDELITY")) reasons.push("FIDELITY: " + FLAG_REASON.FIDELITY); }
     else if (!["pass", "uncertain"].includes(fq.state)) { reasons.push("Unknown product-fidelity state."); unchecked = true; }
   }
+  return finalize(x, reasons, unchecked, q);
+}
+
+function composedGate(x, reasons) {
+  let unchecked = false;
+  if (!x.file) reasons.push("No finished file.");
+  if (!x.output || x.output.ok !== true) reasons.push("The finished file failed validation" + (x.output && x.output.error ? ": " + x.output.error : "."));
+  for (const f of x.flags || []) if (BLOCKING_FLAGS.includes(f)) reasons.push(f + ": " + (FLAG_REASON[f] || "Blocking flag."));
+  const c = x.cutout;
+  if (!c || !["approved", "uploaded"].includes(c.state)) reasons.push("The product cutout needs a one-time check: compare it with the product photo, then approve it (or upload your own).");
+  const s = x.sceneQa;
+  if (!s) { reasons.push("The scene photo check hasn't run."); unchecked = true; }
+  else if (s.state === "off") { reasons.push("The scene photo check is off (no language model configured)."); unchecked = true; }
+  else if (s.state === "error") { reasons.push("The scene photo check couldn't run" + (s.message ? ": " + s.message : ".")); unchecked = true; }
+  else if (s.state === "running") { reasons.push("The scene photo check is still running."); unchecked = true; }
+  else if (s.state === "uncertain" && !s.approved) reasons.push("The scene photo check is unsure: look at the scene and approve it if it's clean.");
+  else if (s.state === "fail") reasons.push("SCENE: the scene photo has " + ((s.issues && s.issues.length) ? s.issues.join("; ") : "a problem") + ". Make a new set to get a new scene.");
+  else if (!["pass", "uncertain"].includes(s.state)) { reasons.push("Unknown scene check state."); unchecked = true; }
+  return finalize(x, reasons, unchecked, null);
+}
+
+function finalize(x, reasons, unchecked, q) {
   if (!reasons.length) return { status: "passed", deliverable: true, reasons: [] };
   // A recorded manual override for exactly this version and file.
   const o = x.override;

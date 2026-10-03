@@ -40,6 +40,7 @@ const CUT_PNG = fs.readFileSync(path.join(FIX, "cut.png"));
 const FLAT_JPG = fs.readFileSync(path.join(FIX, "flat.jpg"));
 
 const PHONE = "+1 855 768 4135", EMAIL = "customerservice@hitlights.com";
+const formT4 = (over = {}) => ({ tpl: "t4", ...SAMPLE.t4, scene: COMPOSED_SAMPLE_SCENE.t4, phone: PHONE, email: EMAIL, angle: "", ...over });
 const formT1 = (over = {}) => ({ tpl: "t1", ...SAMPLE.t1, scene: COMPOSED_SAMPLE_SCENE.t1, phone: PHONE, email: EMAIL, angle: "", ...over });
 const PICK = { url: "https://cdn.shopify.com/p.png", title: "EZDim Pro", label: "EZDim Pro" };
 
@@ -79,7 +80,16 @@ test("composed layouts put the logo exactly on the Logo Grid at every size", () 
     assert.equal(s.logo.h, Math.round(CANVAS[kind].w * LOGO_AR));
     assert.deepEqual([s.W, s.H], [CANVAS[kind].W, CANVAS[kind].H]);
   }
-  assert.ok(LAYOUTS.t1.portrait.safe.top >= Math.round(1920 * 0.14) && LAYOUTS.t1.portrait.safe.bottom <= Math.round(1920 * 0.8));
+  for (const t of ["t1", "t4"]) assert.ok(LAYOUTS[t].portrait.safe.top >= Math.round(1920 * 0.14) && LAYOUTS[t].portrait.safe.bottom <= Math.round(1920 * 0.8));
+});
+
+test("T4: white logo on the photo (grid) for square and landscape; black lockup in the cream panel for portrait", () => {
+  for (const kind of ["master", "landscape"]) {
+    const s = layoutFor("t4", kind, formT4());
+    assert.deepEqual([s.logo.x, s.logo.y, s.logo.w, s.logo.colour, s.logo.inPanel], [...LOGOGRID.t4.pos[kind], CANVAS[kind].w, "white", false]);
+  }
+  const p = layoutFor("t4", "portrait", formT4());
+  assert.deepEqual([p.logo.w, p.logo.colour, p.logo.inPanel], [CANVAS.portrait.w, "black", true]);
 });
 
 test("the trust seal only repeats a certification or warranty proof line", () => {
@@ -126,6 +136,13 @@ test("sample copy fits every T1 size; over-long copy fails with the field named"
     assert.ok(r.report.ok, kind + ": " + JSON.stringify(r.report.errors));
     assert.equal(r.png.readUInt32BE(16), CANVAS[kind].W);
     assert.equal(r.png.readUInt32BE(20), CANVAS[kind].H);
+  }
+  for (const f of [formT4(), formT4({ h1: "Your space,", h2: "made more welcoming.", p1: "Smooth light, high density", p2: "Peace of mind, UL listed", p3: "Ready for damp spaces, IP67", cta: "Shop Luma5" })]) {
+    for (const kind of ["master", "portrait", "landscape"]) {
+      const r = await getComposer().compose(layoutFor("t4", kind, f), { scene: null, product });
+      assert.ok(r.report.ok, "t4 " + kind + ": " + JSON.stringify(r.report.errors));
+      assert.equal(r.report.sizes.h1, r.report.sizes.h2, "both T4 headline lines share one size");
+    }
   }
   const long = formT1({ h1: "Professional dimming drivers for every single job site in California", cta: "Specify the EZDim Pro for your next commercial project" });
   await assert.rejects(getComposer().compose(layoutFor("t1", "landscape", long), { scene: null, product }), (e) => e.code === "layout" && e.errors.some((x) => x.field === "cta"));
@@ -251,4 +268,5 @@ test("COMPOSED_TEMPLATES= sends T1 back down the original pipeline", () => {
   const d = setup();
   assert.equal(d.pipeline.create({ form: formT1(), picked: PICK }).S.composed, true);
   assert.equal(d.pipeline.create({ form: { ...formT1(), tpl: "t2" }, picked: PICK }).S.composed, false);
+  assert.equal(d.pipeline.create({ form: formT4(), picked: PICK }).S.composed, true);
 });

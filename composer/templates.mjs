@@ -54,7 +54,55 @@ const T1 = {
   },
 };
 
-export const LAYOUTS = { t1: T1 };
+// Template 4, Styled Room Hero: photo on top (left in landscape), cream panel with a narrow violet
+// accent bar, ink headline whose last word is gold, the real product standing on the seam between
+// photo and panel. No dot texture in this register. bleed: boxes allowed to touch the frame edge.
+// Portrait: the logo sits at the top of the cream panel as the black lockup (always legible, inside
+// the Stories/Reels safe zone) instead of floating over the photo at the grid's y=288.
+const T4 = {
+  master: {
+    logo: { x: 64, y: 64, w: 280, colour: "white", scrim: true },
+    photo: { x: 0, y: 0, w: 1080, h: 594, radius: "0 0 22px 22px" },
+    bar: { x: 0, y: 594, w: 28, h: 486 },
+    col: { x: 112, y: 594, w: 548, h: 486, pad: [36, 40], align: "center" },
+    head: { h1: [60, 40], h2: [60, 40] },
+    proof: { size: [28, 20], lines: 1, gap: 8 },
+    cta: { h: 66, maxW: 548, size: [28, 20] },
+    contact: { maxW: 548, size: [19, 14] },
+    product: { x: 690, y: 300, w: 340, h: 330 },
+    seal: { cx: 936, cy: 144, d: 168 },
+    bleed: ["photo"], ground: ["photo"],
+  },
+  portrait: {
+    logo: { w: 320, colour: "black", inPanel: true },
+    photo: { x: 0, y: 0, w: 1080, h: 820, radius: "0 0 28px 28px" },
+    bar: { x: 0, y: 820, w: 36, h: 1100 },
+    col: { x: 112, y: 820, w: 860, h: 716, pad: [40, 0], align: "start" },
+    head: { h1: [92, 56], h2: [92, 56] },
+    proof: { size: [38, 28], lines: 1, gap: 10 },
+    cta: { h: 92, maxW: 860, size: [38, 26] },
+    contact: { maxW: 860, size: [27, 20] },
+    product: { x: 650, y: 460, w: 390, h: 400 },
+    seal: { cx: 170, cy: 690, d: 190 },
+    safe: { top: 269, bottom: 1536 },
+    bleed: ["photo"], ground: ["photo"],
+  },
+  landscape: {
+    logo: { x: 56, y: 48, w: 240, colour: "white", scrim: true },
+    photo: { x: 0, y: 0, w: 660, h: 628, radius: "0 22px 22px 0" },
+    bar: { x: 660, y: 0, w: 16, h: 628 },
+    col: { x: 712, y: 0, w: 440, h: 628, pad: [48, 48], align: "center" },
+    head: { h1: [44, 30], h2: [44, 30] },
+    proof: { size: [19, 15], lines: 1, gap: 9 },
+    cta: { h: 54, maxW: 440, size: [22, 17] },
+    contact: { maxW: 440, size: [14, 12] },
+    product: { x: 430, y: 318, w: 260, h: 266 },
+    seal: { cx: 568, cy: 112, d: 124 },
+    bleed: ["photo"], ground: ["photo"],
+  },
+};
+
+export const LAYOUTS = { t1: T1, t4: T4 };
 
 // The trust seal only repeats a proof line that is a certification or warranty (brand rule).
 const SEAL_RX = /\b(warrant(y|ied)|UL|ETL|cETL|listed|certified|certification|DLC|Energy Star|FCC|RoHS|CE)\b/i;
@@ -68,15 +116,16 @@ export function layoutFor(tpl, kind, form) {
   const L = LAYOUTS[tpl] && LAYOUTS[tpl][kind];
   if (!L) throw new Error("No composed layout for " + tpl + " " + kind);
   const C = CANVAS[kind], G = LOGOGRID[tpl];
-  // The logo follows the Logo Grid exactly (position, width, colourway).
-  const [lx, ly] = G.pos[kind];
-  if (lx !== L.logo.x || ly !== L.logo.y || C.w !== L.logo.w) throw new Error("Layout logo box disagrees with the Logo Grid for " + tpl + " " + kind);
+  // The logo follows the Logo Grid (position, width, colourway), except where a layout places it
+  // in its own panel (inPanel: position set by the panel's flow, width still from the grid).
+  const [lx, ly] = L.logo.inPanel ? [null, null] : G.pos[kind];
+  if (C.w !== L.logo.w || (!L.logo.inPanel && (lx !== L.logo.x || ly !== L.logo.y))) throw new Error("Layout logo box disagrees with the Logo Grid for " + tpl + " " + kind);
   const proof = ["p1", "p2", "p3"].map((k) => String(form[k] || "").trim()).filter(Boolean);
   const contact = [form.phone, form.email].map((v) => String(v || "").trim()).filter(Boolean).join("  ·  ");
   return {
     tpl, kind, W: C.W, H: C.H, L,
-    logo: { colour: G.colour, x: lx, y: ly, w: C.w, h: Math.round(C.w * LOGO_AR) },
+    logo: { colour: L.logo.colour || G.colour, x: lx, y: ly, w: C.w, h: Math.round(C.w * LOGO_AR), inPanel: !!L.logo.inPanel, scrim: !!L.logo.scrim },
     text: { h1: String(form.h1 || "").trim(), h2: String(form.h2 || "").trim(), proof, cta: String(form.cta || "").trim(), contact, seal: sealText(form) },
-    colours: { field: BRAND.purpleDeep, gold: BRAND.gold, goldBright: BRAND.goldBright, ink: BRAND.ink },
+    colours: { field: BRAND.purpleDeep, purple: BRAND.purple, gold: BRAND.gold, goldBright: BRAND.goldBright, ink: BRAND.ink, cream: BRAND.cream },
   };
 }

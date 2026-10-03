@@ -1,7 +1,7 @@
 // Which templates are built by the composer (composer/templates.mjs): the image model renders only
 // the scene photograph; the product photo, text, CTA and logo are set by the app. Shared by the
 // page, the engine and the server.
-export const COMPOSED_TEMPLATES = ["t1"];
+export const COMPOSED_TEMPLATES = ["t1", "t4"];
 export const isComposed = (tpl) => COMPOSED_TEMPLATES.includes(tpl);
 
 // "Write it for me": for composed templates the scene is the space and the light only.
@@ -11,4 +11,5 @@ export const COMPOSED_SCENE_TXT = "scene — ONE sentence describing the space a
 // an image model redraws inaccurately).
 export const COMPOSED_SAMPLE_SCENE = {
   t1: "A modern kitchen at dusk, warm LED strip light glowing evenly under the upper cabinets and washing across a pale stone backsplash.",
+  t4: "A styled bedroom shelf at dusk, books and a ceramic vase glowing under warm LED strip light, a linen-covered bed softly out of focus.",
 };

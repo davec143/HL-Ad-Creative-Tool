@@ -67,7 +67,7 @@ export class Composer {
         await page.evaluate((ws) => Promise.all(ws.map((w) => document.fonts.load(w + ' 20px "HLMontserrat"'))), FONT_WEIGHTS);
         await page.evaluate(() => document.fonts.ready);
         const rules = {
-          W: spec.W, H: spec.H, margin: 40, safe: spec.L.safe || null, weights: FONT_WEIGHTS, names: FIELD_NAMES,
+          W: spec.W, H: spec.H, margin: 40, safe: spec.L.safe || null, bleed: spec.L.bleed || [], ground: spec.L.ground || [], weights: FONT_WEIGHTS, names: FIELD_NAMES,
           maxW: { cta: spec.L.cta.maxW, contact: spec.L.contact.maxW },
         };
         const report = await page.evaluate(pageScript, rules);

@@ -49,7 +49,7 @@ export async function selfCheck(cfg) {
     const r = await composer.compose(layoutFor("t1", "master", SAMPLE.t1 || {}), { scene: null, product: tiny }, { screenshot: false, allowInvalid: true });
     const bad = r.report.errors.filter((e) => e.code === "FONT");
     add("composer_browser", !bad.length, bad.map((e) => e.message).join(" "));
-  } catch (e) { add("composer_browser", false, String(e.message).slice(0, 120)); }
+  } catch (e) { add("composer_browser", false, String(e.message).slice(0, 600)); }
   finally { await composer.close(); }
   try { add("cutout_model", fs.statSync(cfg.cutoutModel).size > 1e7, cfg.cutoutModel); }
   catch { add("cutout_model", false, "missing: " + cfg.cutoutModel); }

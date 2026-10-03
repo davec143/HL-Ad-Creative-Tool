@@ -1,12 +1,9 @@
 # HitLights Ad Builder: one container, Node server + Python finishing.
 FROM node:22-bookworm-slim
 
-# chromium renders the brand layer of composed templates (composer/); fonts are bundled, so no
-# system fonts are needed beyond what the package pulls in.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium \
+ && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-ENV CHROMIUM_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
@@ -25,6 +22,14 @@ sys.exit('model hash mismatch: '+h) if h!='60920e99c45464f2ba57bee2ad08c919a52bb
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
+
+# Chromium renders the brand layer of composed templates (composer/). Use the build Playwright pins
+# for its own version (Debian's packaged chromium doesn't launch reliably under Playwright), plus
+# its system libraries. Fonts are bundled with the app, so no system fonts are needed.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+RUN npx --no-install playwright-core install --with-deps chromium \
+ && rm -rf /var/lib/apt/lists/* \
+ && chmod -R a+rX /opt/pw-browsers
 
 COPY core ./core
 COPY composer ./composer

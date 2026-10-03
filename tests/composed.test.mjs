@@ -14,7 +14,7 @@ import { FakeRenderer } from "../server/render/fake.mjs";
 import { readConfig, ROOT } from "../server/config.mjs";
 import { CutoutStore, sha256 } from "../server/compose.mjs";
 import { Composer, chromiumPath, textProblems } from "../composer/render.mjs";
-import { layoutFor, sealText, LAYOUTS } from "../composer/templates.mjs";
+import { layoutFor, sealText, LAYOUTS, LOGO_W } from "../composer/templates.mjs";
 import { SAMPLE, LOGOGRID, CANVAS, LOGO_AR } from "../core/brand.mjs";
 import { COMPOSED_SAMPLE_SCENE } from "../core/composed.mjs";
 import { deliverability } from "../core/gates.mjs";
@@ -76,8 +76,9 @@ function jpegSize(buf) {
 test("composed layouts put the logo exactly on the Logo Grid at every size", () => {
   for (const kind of ["master", "portrait", "landscape"]) {
     const s = layoutFor("t1", kind, formT1());
-    assert.deepEqual([s.logo.x, s.logo.y, s.logo.w, s.logo.colour], [...LOGOGRID.t1.pos[kind], CANVAS[kind].w, "white"]);
-    assert.equal(s.logo.h, Math.round(CANVAS[kind].w * LOGO_AR));
+    assert.deepEqual([s.logo.x, s.logo.y, s.logo.w, s.logo.colour], [...LOGOGRID.t1.pos[kind], LOGO_W[kind], "white"]);
+    assert.equal(s.logo.h, Math.round(LOGO_W[kind] * LOGO_AR));
+    assert.ok(LOGO_W[kind] >= 0.2 * CANVAS[kind].W && LOGO_W[kind] <= 0.36 * CANVAS[kind].W, "brand: 20–36% of frame width");
     assert.deepEqual([s.W, s.H], [CANVAS[kind].W, CANVAS[kind].H]);
   }
   for (const t of ["t1", "t4"]) assert.ok(LAYOUTS[t].portrait.safe.top >= Math.round(1920 * 0.14) && LAYOUTS[t].portrait.safe.bottom <= Math.round(1920 * 0.8));
@@ -86,10 +87,16 @@ test("composed layouts put the logo exactly on the Logo Grid at every size", () 
 test("T4: white logo on the photo (grid) for square and landscape; black lockup in the cream panel for portrait", () => {
   for (const kind of ["master", "landscape"]) {
     const s = layoutFor("t4", kind, formT4());
-    assert.deepEqual([s.logo.x, s.logo.y, s.logo.w, s.logo.colour, s.logo.inPanel], [...LOGOGRID.t4.pos[kind], CANVAS[kind].w, "white", false]);
+    assert.deepEqual([s.logo.x, s.logo.y, s.logo.w, s.logo.colour, s.logo.inPanel], [...LOGOGRID.t4.pos[kind], LOGO_W[kind], "white", false]);
   }
   const p = layoutFor("t4", "portrait", formT4());
-  assert.deepEqual([p.logo.w, p.logo.colour, p.logo.inPanel], [CANVAS.portrait.w, "black", true]);
+  assert.deepEqual([p.logo.w, p.logo.colour, p.logo.inPanel], [LOGO_W.portrait, "black", true]);
+});
+
+test("a larger logo keeps the Logo Grid's anchor: centred stays centred, right-aligned keeps its right edge", () => {
+  const sq = layoutFor("t5", "master", { tpl: "t5", ...SAMPLE.t5 }), ls = layoutFor("t5", "landscape", { tpl: "t5", ...SAMPLE.t5 });
+  assert.equal(sq.logo.x + sq.logo.w / 2, LOGOGRID.t5.pos.master[0] + CANVAS.master.w / 2);
+  assert.equal(ls.logo.x + ls.logo.w, LOGOGRID.t5.pos.landscape[0] + CANVAS.landscape.w);
 });
 
 test("the trust seal only repeats a certification or warranty proof line", () => {

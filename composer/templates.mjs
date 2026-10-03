@@ -15,12 +15,18 @@ export { COMPOSED_TEMPLATES, isComposed } from "../core/composed.mjs";
 // photo box (object-fit: cover), so one paid render serves all three sizes.
 export const SCENE_ASPECT = "1:1";
 
+// Logo width for composed ads, per size: the upper part of the brand's 20–36% of frame width, so the
+// lockup holds its own next to the large headlines (the v16 grid widths, 26/30/20%, read small).
+// Anchoring follows the Logo Grid: left-anchored logos keep their x, centred ones stay centred,
+// right-anchored ones keep their right edge.
+export const LOGO_W = { master: 340, portrait: 380, landscape: 300 };
+
 // Text sizes are [max, min] in px. Text starts at max and shrinks until it fits; below min the
 // layout fails (with the field named) instead of squeezing.
 const T1 = {
   master: {
-    logo: { x: 64, y: 64, w: 280 },
-    head: { x: 64, y: 150, w: 952, h1: [76, 50], h2: [54, 36] },
+    logo: {},
+    head: { x: 64, y: 168, w: 952, h1: [76, 50], h2: [54, 36] },
     proof: { x: 64, w: 368, size: [30, 23], lines: 2, gap: 16, below: 36 },
     photo: { x: 456, y: 330, w: 560, h: 520, r: 24 },
     product: { x: 64, y: 548, w: 420, h: 340 },
@@ -30,8 +36,8 @@ const T1 = {
     dots: { w: 486, h: 400 },
   },
   portrait: {
-    logo: { x: 64, y: 288, w: 320 },
-    head: { x: 64, y: 380, w: 952, h1: [96, 60], h2: [68, 44] },
+    logo: {},
+    head: { x: 64, y: 400, w: 952, h1: [96, 60], h2: [68, 44] },
     proof: { x: 64, w: 952, size: [38, 28], lines: 1, gap: 18, below: 44 },
     photo: { x: 64, y: 820, w: 952, h: 440, r: 28 },
     product: { x: 64, y: 1010, w: 470, h: 360 },
@@ -42,8 +48,8 @@ const T1 = {
     safe: { top: 269, bottom: 1536 },
   },
   landscape: {
-    logo: { x: 56, y: 48, w: 240 },
-    head: { x: 56, y: 116, w: 540, h1: [50, 32], h2: [38, 26] },
+    logo: {},
+    head: { x: 56, y: 136, w: 540, h1: [50, 32], h2: [38, 26] },
     proof: { x: 56, w: 420, size: [22, 17], lines: 1, gap: 10, below: 22 },
     photo: { x: 640, y: 48, w: 504, h: 512, r: 20 },
     product: { x: 500, y: 300, w: 270, h: 288 },
@@ -61,7 +67,7 @@ const T1 = {
 // the Stories/Reels safe zone) instead of floating over the photo at the grid's y=288.
 const T4 = {
   master: {
-    logo: { x: 64, y: 64, w: 280, colour: "white", scrim: true },
+    logo: { colour: "white", scrim: true },
     photo: { x: 0, y: 0, w: 1080, h: 594, radius: "0 0 22px 22px" },
     bar: { x: 0, y: 594, w: 28, h: 486 },
     col: { x: 112, y: 594, w: 548, h: 486, pad: [36, 40], align: "center" },
@@ -74,21 +80,21 @@ const T4 = {
     bleed: ["photo"], ground: ["photo"],
   },
   portrait: {
-    logo: { w: 320, colour: "black", inPanel: true },
-    photo: { x: 0, y: 0, w: 1080, h: 820, radius: "0 0 28px 28px" },
-    bar: { x: 0, y: 820, w: 36, h: 1100 },
-    col: { x: 112, y: 820, w: 860, h: 716, pad: [40, 0], align: "start" },
+    logo: { colour: "black", inPanel: true },
+    photo: { x: 0, y: 0, w: 1080, h: 780, radius: "0 0 28px 28px" },
+    bar: { x: 0, y: 780, w: 36, h: 1140 },
+    col: { x: 112, y: 780, w: 860, h: 756, pad: [40, 0], align: "start" },
     head: { h1: [92, 56], h2: [92, 56] },
     proof: { size: [38, 28], lines: 1, gap: 10 },
     cta: { h: 92, maxW: 860, size: [38, 26] },
     contact: { maxW: 860, size: [27, 20] },
-    product: { x: 650, y: 460, w: 390, h: 400 },
-    seal: { cx: 170, cy: 690, d: 190 },
+    product: { x: 650, y: 420, w: 390, h: 400 },
+    seal: { cx: 170, cy: 650, d: 190 },
     safe: { top: 269, bottom: 1536 },
     bleed: ["photo"], ground: ["photo"],
   },
   landscape: {
-    logo: { x: 56, y: 48, w: 240, colour: "white", scrim: true },
+    logo: { colour: "white", scrim: true },
     photo: { x: 0, y: 0, w: 660, h: 628, radius: "0 22px 22px 0" },
     bar: { x: 660, y: 0, w: 16, h: 628 },
     col: { x: 712, y: 0, w: 440, h: 628, pad: [48, 48], align: "center" },
@@ -107,7 +113,7 @@ const T4 = {
 // product sits in the lower part, clear of the bubble; small white contact line along the bottom.
 const T2 = {
   master: {
-    logo: { w: 280, colour: "black", inPanel: true },
+    logo: { colour: "black", inPanel: true },
     bubble: { x: 65, y: 43, w: 950, pad: [40, 48, 44] },
     head: { h1: [62, 42], h2: [62, 42] }, proofline: { size: [26, 18] }, cta: { h: 72, maxW: 600, size: [30, 22] },
     product: { x: 230, y: 560, w: 620, h: 420 },
@@ -115,7 +121,7 @@ const T2 = {
     bleed: ["photo"], ground: ["photo", "bubble"], apart: [["product", "bubble"], ["product", "contact"], ["contact", "bubble"]],
   },
   portrait: {
-    logo: { w: 320, colour: "black", inPanel: true },
+    logo: { colour: "black", inPanel: true },
     bubble: { x: 65, y: 269, w: 950, pad: [44, 52, 48] },
     head: { h1: [76, 50], h2: [76, 50] }, proofline: { size: [32, 22] }, cta: { h: 88, maxW: 700, size: [36, 26] },
     product: { x: 140, y: 930, w: 800, h: 520 },
@@ -124,7 +130,7 @@ const T2 = {
     bleed: ["photo"], ground: ["photo", "bubble"], apart: [["product", "bubble"], ["product", "contact"], ["contact", "bubble"]],
   },
   landscape: {
-    logo: { w: 240, colour: "black", inPanel: true },
+    logo: { colour: "black", inPanel: true },
     bubble: { x: 40, y: 63, w: 600, pad: [28, 32, 30] },
     head: { h1: [44, 28], h2: [44, 28] }, proofline: { size: [18, 13] }, cta: { h: 54, maxW: 420, size: [22, 16] },
     product: { x: 680, y: 70, w: 480, h: 500 },
@@ -138,7 +144,7 @@ const T2 = {
 // photo, then the deadline line and the gold button (rounded rectangle, not a pill).
 const T3 = {
   master: {
-    logo: { x: 64, y: 64, w: 280 },
+    logo: {},
     head: { x: 64, y: 210, w: 952, h1: [170, 96], h2: [46, 30] },
     card: { x: 548, y: 500, w: 440, h: 330, rot: -6 },
     product: { x: 560, y: 470, w: 420, h: 390, rot: -6 },
@@ -148,7 +154,7 @@ const T3 = {
     apart: [["card", "deadline"], ["card", "cta"], ["product", "deadline"], ["product", "cta"]],
   },
   portrait: {
-    logo: { x: 64, y: 288, w: 320 },
+    logo: {},
     head: { x: 64, y: 400, w: 952, h1: [210, 120], h2: [60, 38] },
     card: { x: 150, y: 860, w: 780, h: 420, rot: -6 },
     product: { x: 200, y: 800, w: 680, h: 500, rot: -6 },
@@ -159,8 +165,8 @@ const T3 = {
     apart: [["card", "deadline"], ["card", "cta"], ["product", "deadline"], ["product", "cta"]],
   },
   landscape: {
-    logo: { x: 56, y: 48, w: 240 },
-    head: { x: 56, y: 116, w: 560, h1: [104, 60], h2: [30, 20] },
+    logo: {},
+    head: { x: 56, y: 136, w: 560, h1: [104, 60], h2: [30, 20] },
     card: { x: 680, y: 120, w: 440, h: 330, rot: -6 },
     product: { x: 690, y: 80, w: 420, h: 420, rot: -6 },
     bottom: { x: 56, y: 580, w: 560 },
@@ -175,8 +181,8 @@ const T3 = {
 // in the foreground, running off the frame edge. No panels, no violet.
 const T5 = {
   master: {
-    logo: { x: 400, y: 64, w: 280, colour: "white" },
-    stack: { x: 90, y: 160, w: 900, align: "center" },
+    logo: { colour: "white" },
+    stack: { x: 90, y: 172, w: 900, align: "center" },
     head: { h1: [104, 64], h2: [104, 64] }, sub: { size: [34, 24], lines: 2 }, cta: { h: 76, maxW: 640, size: [30, 22] },
     product: { x: -40, y: 640, w: 560, h: 470 },
     contact: { stacked: true, right: 64, y: 958, maxW: 520, size: [20, 15] },
@@ -184,8 +190,8 @@ const T5 = {
     bleed: ["photo", "product"], ground: ["photo"], apart: [["product", "contact"], ["product", "cta"]],
   },
   portrait: {
-    logo: { x: 380, y: 288, w: 320, colour: "white" },
-    stack: { x: 80, y: 380, w: 920, align: "center" },
+    logo: { colour: "white" },
+    stack: { x: 80, y: 400, w: 920, align: "center" },
     head: { h1: [128, 76], h2: [128, 76] }, sub: { size: [42, 28], lines: 2 }, cta: { h: 92, maxW: 760, size: [36, 26] },
     contact: { inline: true, maxW: 920, size: [26, 18] },
     product: { x: -60, y: 1240, w: 1200, h: 720 },
@@ -194,8 +200,8 @@ const T5 = {
     bleed: ["photo", "product"], ground: ["photo"], apart: [["product", "contact"], ["product", "cta"]],
   },
   landscape: {
-    logo: { x: 904, y: 48, w: 240, colour: "white" },
-    stack: { x: 600, y: 120, w: 544, align: "end" },
+    logo: { colour: "white" },
+    stack: { x: 600, y: 140, w: 544, align: "end" },
     head: { h1: [74, 44], h2: [74, 44] }, sub: { size: [24, 16], lines: 2 }, cta: { h: 56, maxW: 420, size: [24, 17] },
     product: { x: -40, y: 210, w: 600, h: 460 },
     scrim: "linear-gradient(270deg,rgba(0,0,0,.6) 0%,rgba(0,0,0,.3) 45%,transparent 70%)",
@@ -217,10 +223,16 @@ export function layoutFor(tpl, kind, form) {
   const L = LAYOUTS[tpl] && LAYOUTS[tpl][kind];
   if (!L) throw new Error("No composed layout for " + tpl + " " + kind);
   const C = CANVAS[kind], G = LOGOGRID[tpl];
-  // The logo follows the Logo Grid (position, width, colourway), except where a layout places it
-  // in its own panel (inPanel: position set by the panel's flow, width still from the grid).
-  const [lx, ly] = L.logo.inPanel ? [null, null] : G.pos[kind];
-  if (C.w !== L.logo.w || (!L.logo.inPanel && (lx !== L.logo.x || ly !== L.logo.y))) throw new Error("Layout logo box disagrees with the Logo Grid for " + tpl + " " + kind);
+  // The logo follows the Logo Grid's position and anchor at the composed width (LOGO_W), except
+  // where a layout places it in its own panel (inPanel: position set by the panel's flow).
+  const lw = LOGO_W[kind];
+  if (lw < 0.2 * C.W || lw > 0.36 * C.W) throw new Error("Logo width outside the brand's 20–36% of frame width for " + kind);
+  let lx = null, ly = null;
+  if (!L.logo.inPanel) {
+    const [gx, gy] = G.pos[kind], a = typeof G.a === "object" ? G.a[kind] : G.a;
+    lx = a === "tc" ? Math.round(gx + (C.w - lw) / 2) : a === "tr" ? gx + C.w - lw : gx;
+    ly = gy;
+  }
   const T = TPL[tpl];
   const proof = T.proof === "none" ? [] : ["p1", "p2", "p3"].map((k) => String(form[k] || "").trim()).filter(Boolean);
   const phone = String(form.phone || "").trim(), email = String(form.email || "").trim();
@@ -228,7 +240,7 @@ export function layoutFor(tpl, kind, form) {
   const contact = showContact ? [phone, email].filter(Boolean).join(T.contactIn && T.contactIn[kind] === "inline" ? "  |  " : "  ·  ") : "";
   return {
     tpl, kind, W: C.W, H: C.H, L,
-    logo: { colour: L.logo.colour || G.colour, x: lx, y: ly, w: C.w, h: Math.round(C.w * LOGO_AR), inPanel: !!L.logo.inPanel, scrim: !!L.logo.scrim },
+    logo: { colour: L.logo.colour || G.colour, x: lx, y: ly, w: lw, h: Math.round(lw * LOGO_AR), inPanel: !!L.logo.inPanel, scrim: !!L.logo.scrim },
     text: {
       h1: String(form.h1 || "").trim(), h2: String(form.h2 || "").trim(), proof, cta: String(form.cta || "").trim(), contact,
       phone: showContact ? phone : "", email: showContact ? email : "",

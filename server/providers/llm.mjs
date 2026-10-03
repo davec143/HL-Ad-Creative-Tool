@@ -2,7 +2,8 @@
 // Provider-agnostic: both features call json({prompt, images, schema, model}) and get a parsed object.
 //   anthropic          Claude API via the official SDK. Defaults: claude-haiku-4-5 drafts,
 //                      claude-sonnet-5-5 checks (strict spelling on images is where accuracy pays).
-//   openai-compatible  Any Chat Completions endpoint: OpenAI, Google Gemini (OpenAI-compatible
+//   openai             OpenAI API. Defaults: gpt-5.6-luna drafts, gpt-5.6-terra checks.
+//   openai-compatible  Any Chat Completions endpoint: Google Gemini (OpenAI-compatible
 //                      endpoint), OpenRouter, etc. Set LLM_BASE_URL + model names.
 //   none               Both features off; the rest of the app works.
 import Anthropic from "@anthropic-ai/sdk";
@@ -79,11 +80,14 @@ class AnthropicLlm {
 }
 
 class OpenAiCompatibleLlm {
-  constructor({ apiKey, baseUrl, fetchImpl = fetch }) { this.key = apiKey; this.base = baseUrl.replace(/\/+$/, ""); this.fetch = fetchImpl; this.name = "LLM"; }
-  async json({ prompt, images = [], schema, model, maxTokens = 16000 }) {
+  // openai: the OpenAI API itself. Its reasoning models take max_completion_tokens (not max_tokens)
+  // and a reasoning_effort; other compatible endpoints keep the widely supported max_tokens.
+  constructor({ apiKey, baseUrl, openai = false, fetchImpl = fetch }) { this.key = apiKey; this.base = baseUrl.replace(/\/+$/, ""); this.openai = openai; this.fetch = fetchImpl; this.name = openai ? "OpenAI" : "LLM"; }
+  async json({ prompt, images = [], schema, model, maxTokens = 16000, effort }) {
     const content = images.map((b) => ({ type: "image_url", image_url: { url: "data:" + mediaTypeOf(b) + ";base64," + b.toString("base64") } }));
     content.push({ type: "text", text: prompt });
-    const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content }] };
+    const body = { model, messages: [{ role: "user", content }] };
+    if (this.openai) { body.max_completion_tokens = maxTokens; if (effort) body.reasoning_effort = effort; } else body.max_tokens = maxTokens;
     if (schema) body.response_format = { type: "json_schema", json_schema: { name: "reply", strict: true, schema } };
     const res = await this.fetch(this.base + "/chat/completions", {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + this.key },
@@ -102,6 +106,8 @@ class OpenAiCompatibleLlm {
 
 export function makeLlm(cfg, deps = {}) {
   if (cfg.llmProvider === "anthropic") return new AnthropicLlm({ apiKey: cfg.llmApiKey, client: deps.anthropicClient });
-  if (cfg.llmProvider === "openai-compatible") return new OpenAiCompatibleLlm({ apiKey: cfg.llmApiKey, baseUrl: cfg.llmBaseUrl, fetchImpl: deps.fetchImpl });
+  if (cfg.llmProvider === "openai" || cfg.llmProvider === "openai-compatible") {
+    return new OpenAiCompatibleLlm({ apiKey: cfg.llmApiKey, baseUrl: cfg.llmBaseUrl, openai: cfg.llmProvider === "openai", fetchImpl: deps.fetchImpl });
+  }
   return null;
 }

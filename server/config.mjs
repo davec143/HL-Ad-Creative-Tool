@@ -56,10 +56,11 @@ export function readConfig(env = process.env) {
     shopifyApiVersion: env.SHOPIFY_API_VERSION || "2025-10",
 
     // Copy drafting and the text & logo check. Provider-agnostic: "anthropic" (Claude API) or
-    // "openai-compatible" (OpenAI, Google Gemini's OpenAI endpoint, OpenRouter, etc.). "none" turns
-    // both features off; the page says so and everything else works.
-    llmProvider: env.LLM_PROVIDER || (env.ANTHROPIC_API_KEY ? "anthropic" : (env.LLM_API_KEY ? "openai-compatible" : "none")),
-    llmApiKey: env.LLM_API_KEY || env.ANTHROPIC_API_KEY || "",
+    // "openai" (OpenAI API, built-in defaults) or "openai-compatible" (Google Gemini's OpenAI
+    // endpoint, OpenRouter, etc.). "none" turns both features off; the page says so and everything
+    // else works.
+    llmProvider: env.LLM_PROVIDER || (env.ANTHROPIC_API_KEY ? "anthropic" : env.OPENAI_API_KEY ? "openai" : (env.LLM_API_KEY ? "openai-compatible" : "none")),
+    llmApiKey: env.LLM_API_KEY || "",
     llmBaseUrl: env.LLM_BASE_URL || "",
     llmDraftModel: env.LLM_DRAFT_MODEL || "",
     llmQaModel: env.LLM_QA_MODEL || "",
@@ -70,9 +71,13 @@ export function readConfig(env = process.env) {
   };
   const DEFAULT_MODELS = {
     anthropic: { draft: "claude-haiku-4-5", qa: "claude-sonnet-5-5" },
+    openai: { draft: "gpt-5.6-luna", qa: "gpt-5.6-terra" },
     "openai-compatible": { draft: "", qa: "" },
     none: { draft: "", qa: "" },
   };
+  // The provider's own key variable works too (ANTHROPIC_API_KEY / OPENAI_API_KEY).
+  if (!cfg.llmApiKey) cfg.llmApiKey = (cfg.llmProvider === "anthropic" ? env.ANTHROPIC_API_KEY : cfg.llmProvider === "openai" ? env.OPENAI_API_KEY : "") || "";
+  if (cfg.llmProvider === "openai" && !cfg.llmBaseUrl) cfg.llmBaseUrl = "https://api.openai.com/v1";
   const d = DEFAULT_MODELS[cfg.llmProvider] || DEFAULT_MODELS.none;
   cfg.llmDraftModel = cfg.llmDraftModel || d.draft;
   cfg.llmQaModel = cfg.llmQaModel || d.qa || cfg.llmDraftModel;
@@ -83,9 +88,9 @@ export function readConfig(env = process.env) {
 export function checkConfig(cfg) {
   const errors = [], warnings = [];
   if (!["higgsfield-mcp", "fake"].includes(cfg.renderer)) errors.push("RENDERER must be higgsfield-mcp or fake");
-  if (!["anthropic", "openai-compatible", "none"].includes(cfg.llmProvider)) errors.push("LLM_PROVIDER must be anthropic, openai-compatible or none");
+  if (!["anthropic", "openai", "openai-compatible", "none"].includes(cfg.llmProvider)) errors.push("LLM_PROVIDER must be anthropic, openai, openai-compatible or none");
   if (cfg.llmProvider === "openai-compatible" && (!cfg.llmBaseUrl || !cfg.llmDraftModel)) errors.push("LLM_PROVIDER=openai-compatible needs LLM_BASE_URL and LLM_DRAFT_MODEL");
-  if (cfg.llmProvider !== "none" && !cfg.llmApiKey) errors.push("LLM_PROVIDER=" + cfg.llmProvider + " needs an API key (ANTHROPIC_API_KEY or LLM_API_KEY)");
+  if (cfg.llmProvider !== "none" && !cfg.llmApiKey) errors.push("LLM_PROVIDER=" + cfg.llmProvider + " needs an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY or LLM_API_KEY)");
   if (cfg.production && !cfg.appPassword) errors.push("NODE_ENV=production requires APP_PASSWORD: without it anyone who reaches this server can spend Higgsfield credits.");
   if (cfg.production && cfg.appPassword && cfg.appPassword.length < 10) errors.push("APP_PASSWORD must be at least 10 characters in production.");
   if ((cfg.production || cfg.appPassword) && cfg.sessionSecret.length < MIN_SECRET) errors.push(`SESSION_SECRET must be at least ${MIN_SECRET} random characters.`);

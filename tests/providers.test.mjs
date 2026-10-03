@@ -101,6 +101,20 @@ test("llm: openai-compatible request shape (OpenAI / Gemini / OpenRouter)", asyn
   assert.equal(call.body.response_format.type, "json_schema");
 });
 
+test("llm: openai uses max_completion_tokens and reasoning_effort; compatible endpoints keep max_tokens", async () => {
+  let body;
+  const fetchImpl = async (url, init) => { body = JSON.parse(init.body); return res(200, { choices: [{ finish_reason: "stop", message: { content: "{\"h1\":\"A\"}" } }] }); };
+  const oa = makeLlm(readConfig({ OPENAI_API_KEY: "k" }), { fetchImpl });
+  assert.equal(oa.name, "OpenAI");
+  await oa.json({ prompt: "p", schema: DRAFT_SCHEMA, model: "gpt-5.6-terra", effort: "medium" });
+  assert.equal(body.max_completion_tokens, 16000); assert.equal(body.max_tokens, undefined); assert.equal(body.reasoning_effort, "medium");
+  await oa.json({ prompt: "p", model: "gpt-5.6-luna" });
+  assert.equal(body.reasoning_effort, undefined, "no effort unless asked");
+  const cmp = makeLlm({ llmProvider: "openai-compatible", llmApiKey: "k", llmBaseUrl: "https://x/v1" }, { fetchImpl });
+  await cmp.json({ prompt: "p", model: "m", effort: "medium" });
+  assert.equal(body.max_tokens, 16000); assert.equal(body.max_completion_tokens, undefined); assert.equal(body.reasoning_effort, undefined);
+});
+
 test("llm: extractJson tolerates fences and prose, rejects junk", () => {
   assert.deepEqual(extractJson('{"a":1}'), { a: 1 });
   assert.deepEqual(extractJson('Sure!\n```json\n{"a":2}\n```'), { a: 2 });
@@ -119,6 +133,15 @@ test("config: provider defaults and validation", () => {
   assert.ok(checkConfig(p).errors.some((e) => /SESSION_SECRET/.test(e)));
   const m = readConfig({ LLM_PROVIDER: "openai-compatible", LLM_API_KEY: "k", LLM_BASE_URL: "https://x", LLM_DRAFT_MODEL: "m" });
   assert.equal(m.llmQaModel, "m", "QA falls back to the draft model");
+  const oa = readConfig({ OPENAI_API_KEY: "sk-x" });
+  assert.equal(oa.llmProvider, "openai"); assert.equal(oa.llmApiKey, "sk-x"); assert.equal(oa.llmBaseUrl, "https://api.openai.com/v1");
+  assert.equal(oa.llmDraftModel, "gpt-5.6-luna"); assert.equal(oa.llmQaModel, "gpt-5.6-terra");
+  assert.deepEqual(checkConfig(oa).errors, []);
+  const ov = readConfig({ LLM_PROVIDER: "openai", OPENAI_API_KEY: "sk-x", ANTHROPIC_API_KEY: "sk-ant", LLM_QA_MODEL: "gpt-5.5" });
+  assert.equal(ov.llmApiKey, "sk-x", "the chosen provider's key wins"); assert.equal(ov.llmQaModel, "gpt-5.5");
+  const ak = readConfig({ LLM_PROVIDER: "anthropic", OPENAI_API_KEY: "sk-x", ANTHROPIC_API_KEY: "sk-ant" });
+  assert.equal(ak.llmApiKey, "sk-ant");
+  assert.ok(checkConfig(readConfig({ LLM_PROVIDER: "openai" })).errors.some((e) => /OPENAI_API_KEY/.test(e)));
 });
 
 // ---------- Drive ----------

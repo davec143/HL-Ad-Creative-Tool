@@ -8,7 +8,7 @@ A standalone web app that turns one Shopify product (an exact variant) and a sho
 
 ## How a set is made
 
-### Template 1: composed (the image model never draws the ad)
+### All five templates: composed (the image model never draws the ad)
 
 1. **Product.** Same as below: an exact Shopify variant, frozen into the set.
 2. **Cutout.** The product photo's background is removed locally (IS-Net, free). The photo's own pixels are kept, so the hardware is exact. A person checks each cutout **once** (or uploads their own PNG); after that, every set with that photo can auto-deliver.
@@ -29,9 +29,11 @@ A standalone web app that turns one Shopify product (an exact variant) and a sho
 
 **Try it free first:** *Preview free (0 credits)* lays out all three sizes with the real product and a placeholder photo.
 
-`COMPOSED_TEMPLATES` controls which templates use this path. Set it to empty to send T1 back to the original pipeline below.
+Every template has a fixed layout per size in `composer/templates.mjs`, built from the template library. The only deliberate change from the library is in **T4 portrait**: the logo sits in the cream panel as the black lockup, because over the photo at y=288 it floated mid-scene. In every other size the logo stays on the Logo Grid.
 
-### Templates 2–5: prompt-driven (v16)
+`COMPOSED_TEMPLATES` controls which templates use this path (default: all five). Leave a template out, or set it to empty, to use the original pipeline below.
+
+### Fallback: the original prompt-driven pipeline (v16)
 
 1. **Product.** Shopify search (active products) → pick the exact **variant**. Its image, SKU, price and stock (in stock / out of stock / unknown / not tracked) are frozen into the set. Or paste an https image URL (marked "external").
 2. **Copy.** Typed by hand, or drafted by *Write it for me* within each template's length limits. A fact guard keeps out any figure, price, percentage, certification or offer that isn't in the product data.

@@ -753,7 +753,7 @@ export class Pipeline {
   // Nothing is rendered or charged; layout problems are returned (not thrown) so the page can
   // show exactly what to shorten.
   async preview({ form, picked }) {
-    if (!this.isComposed(form.tpl)) throw new PipelineError("bad_request", "The free preview is available for Template 1 so far.");
+    if (!this.isComposed(form.tpl)) throw new PipelineError("bad_request", "The free preview is only available for templates the app builds itself (COMPOSED_TEMPLATES).");
     if (!this.composer) throw new PipelineError("no_composer", "The ad composer isn't available on this server.");
     if (!picked || !picked.url) throw new PipelineError("bad_request", "Pick a product first.");
     const dir = path.join(this.cfg.dataDir, "preview"); fs.mkdirSync(dir, { recursive: true });

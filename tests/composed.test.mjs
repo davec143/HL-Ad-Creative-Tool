@@ -144,6 +144,13 @@ test("sample copy fits every T1 size; over-long copy fails with the field named"
       assert.equal(r.report.sizes.h1, r.report.sizes.h2, "both T4 headline lines share one size");
     }
   }
+  for (const [t, extra] of [["t2", {}], ["t3", { h1: "11% OFF", deadline: "Save 11% Before Oct 31" }], ["t5", {}]]) {
+    const f = { tpl: t, ...SAMPLE[t], ...extra, phone: PHONE, email: EMAIL };
+    for (const kind of ["master", "portrait", "landscape"]) {
+      const r = await getComposer().compose(layoutFor(t, kind, f), { scene: null, product });
+      assert.ok(r.report.ok, t + " " + kind + ": " + JSON.stringify(r.report.errors));
+    }
+  }
   const long = formT1({ h1: "Professional dimming drivers for every single job site in California", cta: "Specify the EZDim Pro for your next commercial project" });
   await assert.rejects(getComposer().compose(layoutFor("t1", "landscape", long), { scene: null, product }), (e) => e.code === "layout" && e.errors.some((x) => x.field === "cta"));
 });
@@ -267,6 +274,8 @@ test("COMPOSED_TEMPLATES= sends T1 back down the original pipeline", () => {
   assert.equal(pipeline.create({ form: formT1(), picked: PICK }).S.composed, false);
   const d = setup();
   assert.equal(d.pipeline.create({ form: formT1(), picked: PICK }).S.composed, true);
-  assert.equal(d.pipeline.create({ form: { ...formT1(), tpl: "t2" }, picked: PICK }).S.composed, false);
+  assert.equal(d.pipeline.create({ form: { ...formT1(), tpl: "t2" }, picked: PICK }).S.composed, true);
+  const only = setup({ env: { COMPOSED_TEMPLATES: "t1" } });
+  assert.equal(only.pipeline.create({ form: { ...formT1(), tpl: "t2" }, picked: PICK }).S.composed, false, "a template left out of the list uses the original pipeline");
   assert.equal(d.pipeline.create({ form: formT4(), picked: PICK }).S.composed, true);
 });

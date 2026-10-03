@@ -48,8 +48,8 @@ html,body{width:${px(W)};height:${px(H)};overflow:hidden;background:${bg}}
 body{font-family:"HLMontserrat";-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;position:relative}
 .placeholder{background:linear-gradient(135deg,#8a7a5a,#4a4034);display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75);font-weight:600;font-size:22px;text-align:center;line-height:1.4}`;
 const fitAttr = (r, lines) => `data-max="${r[0]}" data-min="${r[1]}" data-lines="${lines}"`;
-const sceneTag = (scene) => scene ? `<img id="photo" class="photo" src="${scene}" alt="">` : `<div id="photo" class="photo placeholder"><span>Scene photo<br>rendered by Higgsfield</span></div>`;
-const proofItems = (T, L) => T.proof.map((p, i) => `<li id="p${i + 1}" class="fit" ${fitAttr(L.proof.size, L.proof.lines)}><span class="dot"></span><span class="t">${escHtml(p)}</span></li>`).join("");
+const sceneTag = (scene, id = "photo", cls = "photo") => scene ? `<img id="${id}" data-role="image" class="${cls}" src="${scene}" alt="">` : `<div id="${id}" data-role="image" class="${cls} placeholder"><span>Scene photo<br>rendered by Higgsfield</span></div>`;
+const proofItems = (T, L) => T.proof.map((p, i) => `<li id="p${i + 1}" data-role="text" class="fit" ${fitAttr(L.proof.size, L.proof.lines)}><span class="dot"></span><span class="t">${escHtml(p)}</span></li>`).join("");
 const sealTag = (T, L) => T.seal ? `<div id="seal" class="fit" ${fitAttr([Math.round(L.seal.d * 0.17), Math.round(L.seal.d * 0.1)], 3)}><span class="t">${escHtml(T.seal)}</span></div>` : "";
 const sealCss = (L, colour) => `#seal{position:absolute;left:${px(L.seal.cx - L.seal.d / 2)};top:${px(L.seal.cy - L.seal.d / 2)};width:${px(L.seal.d)};height:${px(L.seal.d)};border-radius:50%;background:#fff;color:${colour};
   display:flex;align-items:center;justify-content:center;text-align:center;font-weight:800;line-height:1.1;padding:${px(Math.round(L.seal.d * 0.12))};box-shadow:0 6px 16px rgba(0,0,0,.3);text-transform:uppercase}`;
@@ -89,16 +89,127 @@ ${sealCss(L, K.field)}
 ${sceneTag(scene)}
 ${logo.scrim ? '<div id="scrim"></div>' : ""}
 <div id="bar"></div>
-<img id="product" src="${product}" alt="">
+<img id="product" data-role="image" src="${product}" alt="">
 ${sealTag(T, L)}
 ${logo.inPanel ? "" : `<img id="logo" class="abslogo" src="${logoUri(logo.colour)}" alt="">`}
 <div id="col">
 ${logo.inPanel ? `<img id="logo" class="panellogo" src="${logoUri(logo.colour)}" alt="">` : ""}
-<div id="head"><div id="h1" class="fit" data-match="head" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div><div id="h2" class="fit" data-match="head" ${fitAttr(L.head.h2, 2)}>${lastWordSpan(T.h2, "gold")}</div></div>
+<div id="head" data-role="text"><div id="h1" class="fit" data-match="head" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div><div id="h2" class="fit" data-match="head" ${fitAttr(L.head.h2, 2)}>${lastWordSpan(T.h2, "gold")}</div></div>
 <ul id="proof">${proofItems(T, L)}</ul>
-<div id="cta" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
-${T.contact ? `<div id="contact" class="fit" ${fitAttr(L.contact.size, 1)}>${escHtml(T.contact)}</div>` : ""}
+<div id="cta" data-role="text" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
+${T.contact ? `<div id="contact" data-role="text" class="fit" ${fitAttr(L.contact.size, 1)}>${escHtml(T.contact)}</div>` : ""}
 </div>
+</body></html>`;
+}
+
+// A run of short items on one line separated by thin bars (T2's proof line).
+const barred = (items) => items.map((t) => `<span>${escHtml(t)}</span>`).join('<span class="sep">|</span>');
+const ctaArrow = `<span class="arrow" aria-hidden="true"></span>`;
+const ICON = {
+  phone: '<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="none" stroke="#fff" stroke-width="1.6"/><path fill="#fff" d="M9.2 7.2c.3-.3.8-.3 1 .1l1 1.7c.2.3.1.7-.1 1l-.7.6c.5 1.1 1.4 2 2.5 2.5l.6-.7c.3-.3.7-.3 1-.1l1.7 1c.4.2.4.7.1 1l-.9.9c-.6.6-1.5.7-2.2.3a9.6 9.6 0 0 1-4.6-4.6c-.4-.7-.3-1.6.3-2.2z"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="none" stroke="#fff" stroke-width="1.6"/><rect x="6.5" y="8.2" width="11" height="7.6" rx="1" fill="none" stroke="#fff" stroke-width="1.4"/><path d="M7 8.8l5 3.8 5-3.8" fill="none" stroke="#fff" stroke-width="1.4"/></svg>',
+};
+
+function buildT2(spec, { scene, product }) {
+  const { W, H, L, logo, text: T, colours: K } = spec;
+  const b = L.bubble;
+  return head(W, H, "#3c4a5c") + `
+.photo{position:absolute;left:0;top:0;width:${px(W)};height:${px(H)};object-fit:cover;display:block}
+#bubble{position:absolute;left:${px(b.x)};top:${px(b.y)};width:${px(b.w)};padding:${px(b.pad[0])} ${px(b.pad[1])} ${px(b.pad[2])};background:#fff;border-radius:${px(Math.round(b.w * 0.045))};
+  box-shadow:0 14px 34px rgba(0,0,0,.28);display:flex;flex-direction:column;align-items:center;text-align:center}
+#bubble::after{content:"";position:absolute;left:12%;bottom:${px(-Math.round(b.w * 0.035))};border-style:solid;border-width:${px(Math.round(b.w * 0.036))} ${px(Math.round(b.w * 0.03))} 0 0;border-color:#fff transparent transparent transparent}
+#logo{display:block;width:${px(logo.w)};height:auto;margin-bottom:${px(logo.h + 4)}}
+#head{width:100%}
+#h1,#h2{color:${K.ink};font-weight:800;line-height:1.08;letter-spacing:-0.01em}
+#proofline{color:${K.ink};font-weight:600;white-space:nowrap;margin-top:.7em;max-width:100%}
+#proofline .sep{color:#b9b4c2;margin:0 .55em;font-weight:400}
+#cta{height:${px(L.cta.h)};max-width:${px(L.cta.maxW)};padding:0 1.3em;border-radius:${px(L.cta.h)};background:${K.gold};color:${K.ink};margin-top:${px(Math.round(L.cta.h * 0.38))};
+  font-weight:800;white-space:nowrap;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 14px rgba(0,0,0,.2);letter-spacing:.01em}
+#product{position:absolute;left:${px(L.product.x)};top:${px(L.product.y)};width:${px(L.product.w)};height:${px(L.product.h)};object-fit:contain;object-position:50% 100%;
+  filter:drop-shadow(0 18px 22px rgba(0,0,0,.45))}
+#contact{position:absolute;left:${px(L.contact.cx - L.contact.maxW / 2)};width:${px(L.contact.maxW)};top:${px(L.contact.y)};text-align:center;color:#fff;font-weight:500;white-space:nowrap;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+</style></head><body>
+${sceneTag(scene)}
+<img id="product" data-role="image" src="${product}" alt="">
+<div id="bubble" data-role="panel">
+<img id="logo" src="${logoUri(logo.colour)}" alt="">
+<div id="head" data-role="text"><div id="h1" class="fit" data-match="head" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div><div id="h2" class="fit" data-match="head" ${fitAttr(L.head.h2, 2)}>${escHtml(T.h2)}</div></div>
+${T.proof.length ? `<div id="proofline" data-role="text" class="fit" ${fitAttr(L.proofline.size, 1)}>${barred(T.proof)}</div>` : ""}
+<div id="cta" data-role="text" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
+</div>
+${T.contact ? `<div id="contact" data-role="text" class="fit" ${fitAttr(L.contact.size, 1)}>${escHtml(T.contact)}</div>` : ""}
+</body></html>`;
+}
+
+function buildT3(spec, { scene, product }) {
+  const { W, H, L, logo, text: T, colours: K } = spec;
+  const c = L.card, g = L.glow;
+  return head(W, H, K.promoBottom) + `
+body{background:linear-gradient(180deg,${K.promoTop},${K.promoBottom})}
+#glow{position:absolute;left:${px(g.cx - g.r)};top:${px(g.cy - g.r)};width:${px(2 * g.r)};height:${px(2 * g.r)};border-radius:50%;
+  background:radial-gradient(circle at 42% 45%,rgba(235,168,0,.38),transparent 55%),radial-gradient(circle at 62% 58%,rgba(103,81,133,.55),transparent 62%);filter:blur(18px)}
+#logo{position:absolute;left:${px(logo.x)};top:${px(logo.y)};width:${px(logo.w)};height:auto;display:block}
+#head{position:absolute;left:${px(L.head.x)};top:${px(L.head.y)};width:${px(L.head.w)}}
+#h1{color:${K.goldBright};font-weight:800;line-height:.96;letter-spacing:-0.02em}
+#h2{color:#fff;font-weight:700;line-height:1.12;margin-top:.25em}
+.card{position:absolute;left:${px(c.x)};top:${px(c.y)};width:${px(c.w)};height:${px(c.h)};border-radius:${px(18)};object-fit:cover;display:block;
+  transform:rotate(${c.rot}deg);filter:blur(2.5px) brightness(.72) saturate(1.1);box-shadow:0 22px 44px rgba(0,0,0,.5)}
+#product{position:absolute;left:${px(L.product.x)};top:${px(L.product.y)};width:${px(L.product.w)};height:${px(L.product.h)};object-fit:contain;object-position:50% 100%;
+  transform:rotate(${L.product.rot}deg);filter:drop-shadow(0 20px 22px rgba(0,0,0,.55)) drop-shadow(0 0 36px rgba(235,168,0,.35))}
+#bottom{position:absolute;left:${px(L.bottom.x)};bottom:${px(H - L.bottom.y)};width:${px(L.bottom.w)};display:flex;flex-direction:column;align-items:flex-start}
+#deadline{color:#fff;font-weight:600;white-space:nowrap;max-width:100%;margin-bottom:${px(Math.round(L.cta.h * 0.3))}}
+#cta{height:${px(L.cta.h)};max-width:${px(L.cta.maxW)};padding:0 1.25em;border-radius:${px(12)};background:${K.gold};color:${K.ink};
+  font-weight:800;white-space:nowrap;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(0,0,0,.35);letter-spacing:.01em}
+</style></head><body>
+<div id="glow"></div>
+${sceneTag(scene, "card", "card")}
+<img id="product" data-role="image" src="${product}" alt="">
+<img id="logo" src="${logoUri(logo.colour)}" alt="">
+<div id="head" data-role="text"><div id="h1" class="fit" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div>${T.h2 ? `<div id="h2" class="fit" ${fitAttr(L.head.h2, 2)}>${escHtml(T.h2)}</div>` : ""}</div>
+<div id="bottom">
+${T.deadline ? `<div id="deadline" data-role="text" class="fit" ${fitAttr(L.deadline.size, 1)}>${escHtml(T.deadline)}</div>` : ""}
+<div id="cta" data-role="text" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
+</div>
+</body></html>`;
+}
+
+function buildT5(spec, { scene, product }) {
+  const { W, H, L, logo, text: T, colours: K } = spec;
+  const st = L.stack, ct = L.contact || {};
+  const align = st.align === "end" ? "flex-end" : "center";
+  const contactInStack = ct.inline && T.contact;
+  return head(W, H, "#1b1411") + `
+.photo{position:absolute;left:0;top:0;width:${px(W)};height:${px(H)};object-fit:cover;display:block}
+#scrim{position:absolute;inset:0;background:${L.scrim}}
+#logo{position:absolute;left:${px(logo.x)};top:${px(logo.y)};width:${px(logo.w)};height:auto;display:block;filter:drop-shadow(0 2px 8px rgba(0,0,0,.6))}
+#stack{position:absolute;left:${px(st.x)};top:${px(st.y)};width:${px(st.w)};display:flex;flex-direction:column;align-items:${align};text-align:${st.align === "end" ? "right" : "center"};
+  color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.6)}
+#head{width:100%}
+#h1,#h2{font-weight:800;line-height:1.0;letter-spacing:-0.015em}
+#sub{font-weight:500;line-height:1.25;margin-top:.55em;width:100%}
+#cta{height:${px(L.cta.h)};max-width:${px(L.cta.maxW)};padding:0 1.25em;border-radius:${px(L.cta.h)};background:${K.gold};color:${K.ink};text-shadow:none;margin-top:${px(Math.round(L.cta.h * 0.42))};
+  font-weight:800;white-space:nowrap;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(0,0,0,.45);letter-spacing:.01em}
+#cta .arrow{display:inline-block;width:.42em;height:.42em;border-top:.14em solid ${K.ink};border-right:.14em solid ${K.ink};transform:rotate(45deg);margin-left:.5em;margin-right:.1em}
+#contact,#contact2{font-weight:500;white-space:nowrap;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.7);display:flex;align-items:center;gap:.45em}
+#contact svg,#contact2 svg{flex:0 0 auto}
+${ct.stacked ? `#contact,#contact2{position:absolute;right:${px(ct.right)};width:${px(ct.maxW)};justify-content:flex-end}
+#contact{top:${px(ct.y)}} #contact2{top:${px(ct.y + Math.round(ct.size[0] * 1.6))}}` : ""}
+${contactInStack ? `#contact{margin-top:${px(Math.round(L.cta.h * 0.3))};justify-content:center;max-width:${px(ct.maxW)}}` : ""}
+#product{position:absolute;left:${px(L.product.x)};top:${px(L.product.y)};width:${px(L.product.w)};height:${px(L.product.h)};object-fit:contain;object-position:50% 100%;
+  filter:drop-shadow(0 0 36px rgba(255,190,110,.55)) drop-shadow(0 16px 20px rgba(0,0,0,.5))}
+</style></head><body>
+${sceneTag(scene)}
+<div id="scrim"></div>
+<img id="product" data-role="image" src="${product}" alt="">
+<img id="logo" src="${logoUri(logo.colour)}" alt="">
+<div id="stack">
+<div id="head" data-role="text"><div id="h1" class="fit" data-match="head" ${fitAttr(L.head.h1, 1)}>${escHtml(T.h1)}</div><div id="h2" class="fit" data-match="head" ${fitAttr(L.head.h2, 1)}>${escHtml(T.h2)}</div></div>
+${T.sub ? `<div id="sub" data-role="text" class="fit" ${fitAttr(L.sub.size, L.sub.lines)}>${escHtml(T.sub)}</div>` : ""}
+<div id="cta" data-role="text" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}${ctaArrow}</div>
+${contactInStack ? `<div id="contact" data-role="text" class="fit" ${fitAttr(ct.size, 1)}>${escHtml(T.contact)}</div>` : ""}
+</div>
+${ct.stacked && T.phone ? `<div id="contact" data-role="text" class="fit" ${fitAttr(ct.size, 1)}><span class="t">${escHtml(T.phone)}</span>${ICON.phone}</div>` : ""}
+${ct.stacked && T.email ? `<div id="contact2" data-role="text" class="fit" ${fitAttr(ct.size, 1)}><span class="t">${escHtml(T.email)}</span>${ICON.mail}</div>` : ""}
 </body></html>`;
 }
 
@@ -109,10 +220,8 @@ function buildT1(spec, { scene, product }) {
     ? `left:${px(L.cta.cx)};transform:translateX(-50%);` : `left:${px(L.cta.x)};`;
   const contactBox = L.contact.cx != null
     ? `left:${px(L.contact.cx - L.contact.maxW / 2)};width:${px(L.contact.maxW)};text-align:center;` : `left:${px(L.contact.x)};width:${px(L.contact.maxW)};`;
-  const proof = T.proof.map((p, i) => `<li id="p${i + 1}" class="fit" ${fitAttr(L.proof.size, L.proof.lines)}><span class="dot"></span><span class="t">${escHtml(p)}</span></li>`).join("");
-  const sceneEl = scene
-    ? `<img id="photo" class="photo" src="${scene}" alt="">`
-    : `<div id="photo" class="photo placeholder"><span>Scene photo<br>rendered by Higgsfield</span></div>`;
+  const proof = T.proof.map((p, i) => `<li id="p${i + 1}" data-role="text" class="fit" ${fitAttr(L.proof.size, L.proof.lines)}><span class="dot"></span><span class="t">${escHtml(p)}</span></li>`).join("");
+  const sceneEl = sceneTag(scene);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 ${fonts()}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -141,13 +250,13 @@ body{font-family:"HLMontserrat";-webkit-font-smoothing:antialiased;text-renderin
 </style></head><body>
 <div class="dots" id="dots"></div>
 ${sceneEl}
-<img id="product" src="${product}" alt="">
+<img id="product" data-role="image" src="${product}" alt="">
 ${T.seal ? `<div id="seal" class="fit" ${fitAttr([Math.round(L.seal.d * 0.17), Math.round(L.seal.d * 0.1)], 3)}><span class="t">${escHtml(T.seal)}</span></div>` : ""}
 <img id="logo" src="${logoUri(logo.colour)}" alt="">
-<div id="head"><div id="h1" class="fit" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div><div id="h2" class="fit" ${fitAttr(L.head.h2, 2)}>${escHtml(T.h2)}</div></div>
+<div id="head" data-role="text"><div id="h1" class="fit" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div><div id="h2" class="fit" ${fitAttr(L.head.h2, 2)}>${escHtml(T.h2)}</div></div>
 <ul id="proof" data-below="${L.proof.below}">${proof}</ul>
-<div id="cta" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
-${T.contact ? `<div id="contact" class="fit" ${fitAttr(L.contact.size, 1)}>${escHtml(T.contact)}</div>` : ""}
+<div id="cta" data-role="text" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
+${T.contact ? `<div id="contact" data-role="text" class="fit" ${fitAttr(L.contact.size, 1)}>${escHtml(T.contact)}</div>` : ""}
 </body></html>`;
 }
 
@@ -165,7 +274,8 @@ export function pageScript(rules) {
   const fits = (el, lines) => {
     if (el.id === "cta" || el.id === "contact") {
       const box = el.getBoundingClientRect();
-      return el.scrollWidth <= el.clientWidth + 1 && box.width <= rules.maxW[el.id] + 0.5;
+      const mw = rules.maxW[el.id] == null ? Infinity : rules.maxW[el.id];
+      return el.scrollWidth <= el.clientWidth + 1 && box.width <= mw + 0.5;
     }
     const t = el.querySelector(".t") || el;
     if (el.id === "seal") {
@@ -194,11 +304,11 @@ export function pageScript(rules) {
   for (const g of Object.values(groups)) { const m = Math.min(...g.map((e) => parseFloat(e.style.fontSize))); for (const e of g) { e.style.fontSize = m + "px"; sizes[e.id] = m; } }
   // An absolutely placed proof list sits under the headline (T1); in a flowing column it follows.
   const head = $("head"), proof = $("proof");
-  if (getComputedStyle(proof).position === "absolute") proof.style.top = (head.offsetTop + head.offsetHeight + (+proof.dataset.below)) + "px";
-  // Rectangles in page pixels.
+  if (proof && head && getComputedStyle(proof).position === "absolute") proof.style.top = (head.offsetTop + head.offsetHeight + (+proof.dataset.below)) + "px";
+  // Rectangles in page pixels. Roles come from data-role: text, image, panel (seal and logo by id).
   const R = (el) => { const b = el.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; };
-  for (const id of ["logo", "head", "proof", "photo", "seal", "cta", "contact"]) if ($(id)) rects[id] = R($(id));
-  for (const li of proof.children) rects[li.id] = R(li);
+  const ids = (role) => [...document.querySelectorAll('[data-role="' + role + '"]')].map((e) => e.id).filter(Boolean);
+  for (const id of [...ids("text"), ...ids("image"), ...ids("panel"), "logo", "seal"]) if ($(id) && id !== "product") rects[id] = R($(id));
   // The product's drawn area (object-fit: contain, anchored bottom-centre), not its box.
   const p = $("product"), pb = R(p);
   if (!p.naturalWidth) errors.push({ code: "PRODUCT", message: "The product image didn't load." });
@@ -206,25 +316,27 @@ export function pageScript(rules) {
     const s = Math.min(pb.w / p.naturalWidth, pb.h / p.naturalHeight), w = p.naturalWidth * s, h = p.naturalHeight * s;
     rects.product = { x: pb.x + (pb.w - w) / 2, y: pb.y + pb.h - h, w, h };
   }
-  if ($("photo").tagName === "IMG" && !$("photo").naturalWidth) errors.push({ code: "SCENE", message: "The scene photo didn't load." });
+  if ($("photo") && $("photo").tagName === "IMG" && !$("photo").naturalWidth) errors.push({ code: "SCENE", message: "The scene photo didn't load." });
   // Fonts: every weight in use must be the bundled Montserrat, not a fallback.
   for (const w of rules.weights) if (!document.fonts.check(w + ' 20px "HLMontserrat"')) errors.push({ code: "FONT", message: "Montserrat " + w + " didn't load." });
-  // Overlap rules.
+  // Overlap rules. "ground" boxes are what text and the logo deliberately sit on (a full-bleed
+  // photo, the speech bubble), so they aren't obstacles.
+  const ground = rules.ground || [];
   const inter = (a, b, pad = 0) => a && b && a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
-  const textIds = ["head", ...[...proof.children].map((li) => li.id), "cta", "contact"].filter((id) => rects[id]);
+  const textIds = ids("text").filter((id) => rects[id]);
+  const imageIds = [...ids("image"), ...ids("panel")].filter((id) => rects[id] && !ground.includes(id));
   const logoClear = rects.logo.h; // clear space: the height of the H mark, on all sides
-  // The ground the logo sits on (T4's full-bleed photo) isn't an obstacle to its clear space.
-  const blockers = [...textIds, "photo", "product", "seal"].filter((id) => rects[id] && !(rules.ground || []).includes(id));
-  for (const id of blockers) if (inter(rects.logo, rects[id], logoClear)) errors.push({ code: "LOGO_CLEARSPACE", field: id, message: "Nothing may sit within the logo's clear space; " + (rules.names[id] || id) + " does." });
+  for (const id of [...textIds, ...imageIds, "seal"].filter((id) => rects[id])) if (inter(rects.logo, rects[id], logoClear)) errors.push({ code: "LOGO_CLEARSPACE", field: id, message: "Nothing may sit within the logo's clear space; " + (rules.names[id] || id) + " does." });
   for (let i = 0; i < textIds.length; i++) {
-    for (const other of [...textIds.slice(i + 1), "photo", "product", "seal"]) {
+    for (const other of [...textIds.slice(i + 1), ...imageIds, "seal"]) {
       if (rects[other] && inter(rects[textIds[i]], rects[other], textIds.includes(other) ? 4 : 8)) errors.push({ code: "OVERLAP", field: textIds[i], message: (rules.names[textIds[i]] || textIds[i]) + " runs into " + (rules.names[other] || other) + "." });
     }
   }
   if (rects.seal && rects.product && inter(rects.seal, rects.product, 8)) errors.push({ code: "OVERLAP", field: "seal", message: "The trust seal runs into the product." });
+  for (const [a, b] of rules.apart || []) if (rects[a] && rects[b] && inter(rects[a], rects[b], 8)) errors.push({ code: "OVERLAP", field: a, message: (rules.names[a] || a) + " runs into " + (rules.names[b] || b) + "." });
   // Frame and safe zones.
   const M = rules.margin;
-  for (const id of [...textIds, "logo", "seal", "product", "photo"]) {
+  for (const id of [...textIds, ...ids("image"), ...ids("panel"), "logo", "seal"]) {
     const r = rects[id]; if (!r || (rules.bleed || []).includes(id)) continue;
     if (r.x < M - 0.5 || r.y < M - 0.5 || r.x + r.w > rules.W - M + 0.5 || r.y + r.h > rules.H - M + 0.5) errors.push({ code: "FRAME", field: id, message: (rules.names[id] || id) + " is too close to the edge." });
   }
@@ -237,7 +349,10 @@ export function pageScript(rules) {
   return { ok: errors.length === 0, errors, sizes, rects };
 }
 
-export const FIELD_NAMES = { h1: "Headline line 1", h2: "Headline line 2", head: "The headline", p1: "Proof line 1", p2: "Proof line 2", p3: "Proof line 3", cta: "The button text", contact: "The contact line", seal: "The trust seal", photo: "the scene photo", product: "the product", logo: "the logo" };
+export const FIELD_NAMES = { h1: "Headline line 1", h2: "Headline line 2", head: "The headline", sub: "The subheadline", deadline: "The deadline line", proofline: "The proof line", p1: "Proof line 1", p2: "Proof line 2", p3: "Proof line 3", cta: "The button text", contact: "The contact line", contact2: "The email line", seal: "The trust seal", photo: "the scene photo", card: "the scene card", bubble: "the speech bubble", product: "the product", logo: "the logo" };
 
 BUILDERS.t1 = buildT1;
 BUILDERS.t4 = buildT4;
+BUILDERS.t2 = buildT2;
+BUILDERS.t3 = buildT3;
+BUILDERS.t5 = buildT5;

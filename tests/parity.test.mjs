@@ -20,7 +20,10 @@ const DEVIATIONS = {
   packHeader: [" to the Andromeda spec: one image ad, three sizes, one concept.", ": one image ad, three placement sizes, one concept."],
   // Composed templates (Oct 2026): the drafted scene is the space and light only, never the product
   // or hands, because the product is the real photo composited by the app (docs/adr/0001, 0003).
-  composedScene: ["scene — ONE sentence describing a photograph: who is in frame, what they are doing, where. Concrete and physical. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n", COMPOSED_SCENE_TXT],
+  composedScene: [[
+    "scene — ONE sentence describing a photograph: who is in frame, what they are doing, where. Concrete and physical. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n",
+    "scene — ONE sentence describing the setting behind an angled product flat-lay: the surface it rests on and the softly lit room behind. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n",
+  ], COMPOSED_SCENE_TXT],
 };
 function legacyGrid(tpl, kind) {
   const g = JSON.parse(JSON.stringify(H.gridSpec(tpl, kind)));
@@ -70,8 +73,9 @@ test("parity: draft brief, every template, with and without product data", async
       H.$("draft").fire("click");
       await new Promise((r) => setTimeout(r, 0));
       assert.ok(brief, "legacy draft fired");
-      const want = isComposed(tpl) ? brief.replace(DEVIATIONS.composedScene[0], DEVIATIONS.composedScene[1]) : brief;
-      if (isComposed(tpl)) assert.ok(brief.includes(DEVIATIONS.composedScene[0]), "v16 scene instruction as documented");
+      const legacy = DEVIATIONS.composedScene[0].find((s) => brief.includes(s));
+      if (isComposed(tpl)) assert.ok(legacy, "v16 scene instruction as documented");
+      const want = isComposed(tpl) ? brief.replace(legacy, DEVIATIONS.composedScene[1]) : brief;
       assert.equal(E.draftBrief(tpl, product, angle), want, tpl + " brief");
     }
   }

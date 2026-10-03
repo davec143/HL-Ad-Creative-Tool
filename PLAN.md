@@ -6,7 +6,7 @@
 - the image model drew a box around the logo zone, or put the headline under the logo;
 - it garbled the product's printed labels.
 
-Prompting can't make this reliable. **Template 1 is now composed** (ADR 0001 + 0003):
+Prompting can't make this reliable. **All five templates are now composed** (ADR 0001 + 0003; T1 first, then T4 after a second live test showed a duplicate AI-drawn logo and a dropped "@" in the email, then T2, T3 and T5):
 - Higgsfield renders one scene photo per set (about 2 credits instead of 6);
 - the app sets the real product cutout, the copy, the CTA and the logo in Chromium from fixed layouts.
 

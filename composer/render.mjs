@@ -26,6 +26,7 @@ export function textProblems(text) {
   const out = [];
   const check = (name, v) => { if (v && !ALLOWED_TEXT.test(v)) out.push({ code: "GLYPH", field: name, message: (FIELD_NAMES[name] || name) + " has a character the brand font can't draw (" + [...v].filter((c) => !ALLOWED_TEXT.test(c)).join(" ") + ")." }); };
   check("h1", text.h1); check("h2", text.h2); check("cta", text.cta); check("contact", text.contact); check("seal", text.seal);
+  check("sub", text.sub); check("deadline", text.deadline);
   text.proof.forEach((p, i) => check("p" + (i + 1), p));
   if (!text.h1) out.push({ code: "MISSING", field: "h1", message: "Headline line 1 is empty." });
   if (!text.cta) out.push({ code: "MISSING", field: "cta", message: "The button text is empty." });
@@ -67,8 +68,8 @@ export class Composer {
         await page.evaluate((ws) => Promise.all(ws.map((w) => document.fonts.load(w + ' 20px "HLMontserrat"'))), FONT_WEIGHTS);
         await page.evaluate(() => document.fonts.ready);
         const rules = {
-          W: spec.W, H: spec.H, margin: 40, safe: spec.L.safe || null, bleed: spec.L.bleed || [], ground: spec.L.ground || [], weights: FONT_WEIGHTS, names: FIELD_NAMES,
-          maxW: { cta: spec.L.cta.maxW, contact: spec.L.contact.maxW },
+          W: spec.W, H: spec.H, margin: 40, safe: spec.L.safe || null, bleed: spec.L.bleed || [], ground: spec.L.ground || [], apart: spec.L.apart || [], weights: FONT_WEIGHTS, names: FIELD_NAMES,
+          maxW: { cta: spec.L.cta && spec.L.cta.maxW, contact: spec.L.contact && spec.L.contact.maxW },
         };
         const report = await page.evaluate(pageScript, rules);
         if (!report.ok && !allowInvalid) throw new ComposeError("layout", report.errors.map((e) => e.message).join(" "), report.errors);

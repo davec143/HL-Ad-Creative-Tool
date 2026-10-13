@@ -416,7 +416,7 @@ function card(r, x, working) {
       const q = el("div", "qa pass", "Built by the app: your exact copy in Montserrat, the real logo, the gold CTA and the real product photo — nothing redrawn by the image model.");
       c.appendChild(q); c.appendChild(deliveryBox(r, x, working));
       if (x.drive) c.appendChild(el("span", "dim", "Saved to Drive as " + x.drive.name));
-      const row = el("div", "rowbtn"); const a = el("a", "btn-quiet", "Download " + x.fileName); a.href = x.file + "?dl=1"; a.style.textDecoration = "none"; row.appendChild(a); c.appendChild(row);
+      const row = el("div", "rowbtn"); const a = el("a", "btn-quiet", "Download " + x.fileName); a.href = x.file + (x.file.includes("?") ? "&" : "?") + "dl=1"; a.style.textDecoration = "none"; row.appendChild(a); c.appendChild(row);
       return c;
     }
     x.flags.forEach((f) => { const t = FLAGTXT[f]; if (t) { const w = el("div", "err", t); w.style.marginTop = "4px"; c.appendChild(w); } });
@@ -435,7 +435,7 @@ function card(r, x, working) {
     if (x.drive) c.appendChild(el("span", "dim", "Saved to Drive as " + x.drive.name));
   } else if (st) c.appendChild(el("span", "dim", st));
   const row = el("div", "rowbtn");
-  if (x.state === "done") { const a = el("a", "btn-quiet", "Download " + x.fileName); a.href = x.file + "?dl=1"; a.style.textDecoration = "none"; row.appendChild(a); }
+  if (x.state === "done") { const a = el("a", "btn-quiet", "Download " + x.fileName); a.href = x.file + (x.file.includes("?") ? "&" : "?") + "dl=1"; a.style.textDecoration = "none"; row.appendChild(a); }
   if ((x.state === "done" || x.state === "failed") && r.masterReady && !working) {
     const per = status ? status.creditsPerRender : 2;
     const rg = el("button", "btn-quiet regen", x.kind === "master" ? "Regenerate the whole set (" + 3 * per + " credits)" : "Regenerate this size (" + per + " credits)");

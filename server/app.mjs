@@ -48,7 +48,7 @@ export function publicRun(r, opts = {}) {
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
     source: r.S.source ? { sku: r.S.source.sku, variantTitle: r.S.source.variantTitle, price: r.S.source.price, stock: r.S.source.stock, imageSource: r.S.source.imageSource, sha256: r.S.source.sha256 || null, kept: !!r.S.source.file, error: r.S.source.fetchError || null } : null,
     composed: !!r.S.composed,
-    scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, preparation: r.scene.preparation || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene` : null } : null,
+    scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, preparation: r.scene.preparation || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene?v=${encodeURIComponent(r.scene.preview)}` : null } : null,
     cutout: r.cutout ? { sha: r.cutout.sha || null, state: r.cutout.state, error: r.cutout.error || null, image: r.cutout.sha && r.cutout.state !== "failed" ? `/api/cutouts/${r.cutout.sha}` : null } : null,
     preflight: r.preflight || null,
     driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
@@ -59,7 +59,7 @@ export function publicRun(r, opts = {}) {
       qa: x.qa, fidelity: x.fidelity || null, held: x.held, drive: x.drive, output: x.output || null,
       override: x.override ? { at: x.override.at, reason: x.override.reason, actor: x.override.actor, version: x.override.version } : null,
       delivery: deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:\/\/[^?#]+$/.test(x.url || "") ? x.url : null,
-      file: x.file ? `/api/runs/${r.id}/files/${x.file}` : null, fileName: fileName(x),
+      file: x.file ? `/api/runs/${r.id}/files/${x.file}${x.output && x.output.sha256 ? "?v=" + x.output.sha256 : ""}` : null, fileName: fileName(x),
     })),
   };
 }
@@ -244,7 +244,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       const r = runOr404(m[1]); const x = r.items.find((i) => i.file === m[2]);
       if (!x) throw new HttpError(404, "No such file.");
       const data = fs.readFileSync(store.filePath(r.id, x.file));
-      const h = { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" };
+      const h = { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" };
       if (url.searchParams.get("dl")) h["Content-Disposition"] = `attachment; filename="${fileName(x)}"`;
       res.writeHead(200, h); res.end(data);
     }],
@@ -302,7 +302,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     ["GET", /^\/api\/runs\/([a-z0-9]+)\/scene$/, async (req, res, m) => {
       const r = runOr404(m[1]);
       if (!r.scene || !r.scene.preview) throw new HttpError(404, "No scene photo yet.");
-      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" });
+      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" });
       res.end(fs.readFileSync(store.filePath(r.id, r.scene.preview)));
     }],
 

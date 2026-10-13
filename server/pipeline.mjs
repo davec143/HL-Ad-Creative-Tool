@@ -758,7 +758,7 @@ export class Pipeline {
         const { report, result } = await composeToJpeg(this.composer, layoutFor(run.S.tpl, x.kind, run.form), { scene, product }, { python: this.cfg.python, out });
         const v = validateOutput(out, x.W, x.H);
         x.file = path.basename(out); x.flags = []; x.mode = "composed"; x.layout = { sizes: report.sizes };
-        x.output = result.ok && v.ok ? { ...v, quality: result.quality } : { ok: false, error: result.error || v.error || "output check failed", bytes: v.bytes };
+        x.output = result.ok && v.ok ? { ...v, quality: result.quality, sha256: crypto.createHash("sha256").update(fs.readFileSync(out)).digest("hex") } : { ok: false, error: result.error || v.error || "output check failed", bytes: v.bytes };
         x.state = "done"; x.qa = null; x.fidelity = null; x.drive = null; x.held = false; x.override = null; x.error = null;
         this.log(run, "  " + x.dims + " — composed" + (x.output.ok ? " (" + Math.round(x.output.bytes / 1000) + " KB)" : " — output check failed: " + x.output.error), x.output.ok ? "run" : "err");
       } catch (e) {

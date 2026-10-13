@@ -88,6 +88,7 @@ test("full set over HTTP: poll, files, download name, zip; bad file names refuse
     assert.equal(it.rawUrl, null, "local fake paths are never exposed");
     const f = await a.req(it.file + "?dl=1");
     assert.equal(f.status, 200); assert.equal(f.headers.get("content-type"), "image/jpeg");
+    assert.equal(f.headers.get("cache-control"), "private, no-store", "re-composition cannot serve a stale image");
     assert.match(f.headers.get("content-disposition"), /filename="1080x1080.jpg"/);
     const z = await a.req("/api/runs/" + id + "/zip");
     assert.equal(z.status, 200); assert.equal(z.buf.readUInt32LE(0), 0x04034b50);
@@ -138,4 +139,9 @@ test("publicRun never leaks server paths", () => {
   const r = { id: "rabc123", ts: 1, status: "done", log: [], S: { product: "p", tpl: "t1", tplName: "T1", folder: "f", outOfStock: false }, items: [{ kind: "master", dims: "1080x1080", title: "Square", version: 1, state: "done", flags: [], logo: { x: 1, y: 2, where: "w" }, url: "file:///data/fake/x.png", file: "master-v1.jpg" }] };
   const s = JSON.stringify(publicRun(r));
   assert.ok(!s.includes("/data/")); assert.ok(s.includes("/api/runs/rabc123/files/master-v1.jpg"));
+  r.scene = { preview: "scene-v1-prepared-preview.jpg" };
+  r.items[0].output = { ok: true, sha256: "abc123" };
+  const p = publicRun(r);
+  assert.match(p.scene.preview, /\?v=scene-v1-prepared-preview.jpg$/);
+  assert.match(p.items[0].file, /\?v=abc123$/);
 });

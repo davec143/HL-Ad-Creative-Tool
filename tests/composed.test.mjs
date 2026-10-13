@@ -121,6 +121,14 @@ test("scene prompt asks for a photograph only; scene check parsing never turns d
   assert.equal(parseSceneCheck({ verdict: "maybe" }).ok, false);
 });
 
+test("scene prompts never reuse the legacy product/ad art direction", () => {
+  for (const tpl of Object.keys(LAYOUTS)) {
+    const p = scenePrompt({ tpl, scene: "A room lit by LED strips." });
+    assert.doesNotMatch(p, /product catching|glowing product|product surfaces|hardware advertising|retail promotion/i);
+    assert.match(p, /edge to edge/);
+  }
+});
+
 test("composed gate: needs a valid file, an approved cutout and a passed scene check", () => {
   const base = { composed: true, state: "done", file: "a.jpg", version: 1, flags: [], output: { ok: true }, cutout: { state: "approved" }, sceneQa: { state: "pass" } };
   assert.equal(deliverability(base).status, "passed");

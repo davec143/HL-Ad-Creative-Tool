@@ -1,12 +1,21 @@
 // Composed templates: the image model renders ONE scene photograph per set, nothing else. No text,
 // no product, no logo, no panels: those are set by the app (composer/). Pure functions.
 import { BRAND } from "./brand.mjs";
-import { tplOf, esc } from "./engine.mjs";
+import { esc } from "./engine.mjs";
 
 export const SCENE_MODEL = "nano_banana_pro";
 
+// Photo-only directions. The legacy TPL.craft strings describe an entire ad and
+// ask for product highlights/retail promotion, contradicting this scene-only path.
+const PHOTO_LIGHTING = {
+  t1: "Editorial architectural photography, soft ambient light with warm practical LED glow, controlled reflections and clean architectural geometry.",
+  t2: "Editorial photograph of a commercial interior in cool natural daylight, realistic surfaces and warm practical LED accents.",
+  t3: "A low-key interior photograph with warm LED shelf lighting, deep shadows, rich contrast and a softly out-of-focus room background.",
+  t4: "Warm, lived-in editorial interior photography, low-Kelvin practical LED light with soft ambient fill and a warmer white balance.",
+  t5: "Cinematic architectural photography at night, main lights off, with warm LED cove, shelf and under-cabinet light as the only light sources.",
+};
+
 export function scenePrompt(form) {
-  const T = tplOf(form.tpl);
   const scene = esc(form.scene || "") || "A bright, upscale modern kitchen at dusk, warm LED strip lighting glowing under the cabinets and along a cove in the ceiling.";
   return [
     "[ONE PHOTOGRAPH — no graphic design]",
@@ -15,7 +24,7 @@ export function scenePrompt(form) {
     "[SCENE]",
     scene,
     "The LED lighting effect is the hero: an even, premium glow with realistic falloff on surfaces.",
-    T.craft,
+    PHOTO_LIGHTING[form.tpl] || PHOTO_LIGHTING.t1,
     BRAND.punch,
     "",
     "[STRICT — the photograph must contain none of these]",

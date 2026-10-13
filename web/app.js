@@ -212,7 +212,7 @@ $("draft").addEventListener("click", async () => {
 });
 
 // ---------- free preview (composed templates) ----------
-$("previewBtn").addEventListener("click", async () => {
+async function refreshPreview() {
   const box = $("preview"), btn = $("previewBtn");
   if (!picked || !picked.url) { box.hidden = false; box.innerHTML = ""; box.appendChild(el("p", "hint", "Pick a product first.")); return; }
   btn.disabled = true; btn.textContent = "Laying it out…";
@@ -222,7 +222,8 @@ $("previewBtn").addEventListener("click", async () => {
     paintPreview(p);
   } catch (e) { box.innerHTML = ""; if (e.code !== "login") box.appendChild(el("div", "err", "Preview didn't work: " + e.message)); }
   btn.disabled = false; btn.textContent = "Preview free (0 credits)";
-});
+}
+$("previewBtn").addEventListener("click", refreshPreview);
 function paintPreview(p) {
   const box = $("preview"); box.innerHTML = "";
   box.appendChild(cutoutPanel(p.cutout, null));
@@ -248,7 +249,7 @@ function cutoutPanel(c, run) {
   if (!c) { box.textContent = "Product cutout: not made yet."; return box; }
   box.appendChild(el("b", null, CUTOUT_LABEL[c.state] || c.state));
   if (c.error) box.appendChild(el("div", null, c.error));
-  const img = c.sha && c.state !== "failed" ? "/api/cutouts/" + c.sha : null;
+  const img = c.sha && c.state !== "failed" ? "/api/cutouts/" + c.sha + (c.revision ? "?v=" + c.revision : "") : null;
   const photo = c.sha ? "/api/cutouts/" + c.sha + "/photo" : null;
   if (img) {
     // The original photo next to the cutout (on a checkerboard and on the brand violet), so a
@@ -256,17 +257,18 @@ function cutoutPanel(c, run) {
     const pair = el("div", "cutpair");
     const fig = (src, cls, cap) => { const f = el("figure", cls); const i = el("img"); i.src = src; i.alt = cap; f.appendChild(i); f.appendChild(el("figcaption", null, cap)); return f; };
     if (photo) pair.appendChild(fig(photo, "cutout photo", "Product photo"));
-    pair.appendChild(fig(img + "?t=" + Date.now(), "cutout", "Cutout"));
-    pair.appendChild(fig(img + "?t=" + Date.now(), "cutout violet", "Cutout on violet"));
+    pair.appendChild(fig(img, "cutout", "Cutout"));
+    pair.appendChild(fig(img, "cutout violet", "Cutout on violet"));
     box.appendChild(pair);
   }
   if (c.state === "auto") box.appendChild(el("p", "hint", "Compare the cutout with the product photo: every part of the product there and solid (nothing see-through), nothing extra, clean edges. Once approved, every set with this photo can deliver automatically. If anything's off, replace it with your own PNG."));
+  if (c.stale) box.appendChild(el("p", "hint", "This cutout has changed. Re-compose the set to update all three ads before using them."));
   const row = el("div", "rowbtn");
   if (c.state === "auto") {
     const ok = el("button", "btn-quiet", "Approve cutout"); ok.type = "button";
     ok.onclick = async () => {
       if (!confirm("You compared the cutout with the product photo and it's the whole product, cleanly cut out?")) return;
-      try { const r = await api("/api/cutouts/" + c.sha + "/approve", { method: "POST", body: { confirm: true, runId: run ? run.id : undefined } }); if (r.run) { paintRun(r.run); poll(); } else { c.state = r.cutout.state; box.replaceWith(cutoutPanel(c, run)); } }
+      try { const r = await api("/api/cutouts/" + c.sha + "/approve", { method: "POST", body: { confirm: true, revision: c.revision, runId: run ? run.id : undefined } }); if (r.run) { paintRun(r.run); poll(); } else { Object.assign(c, r.cutout); box.replaceWith(cutoutPanel(c, run)); } }
       catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
     };
     row.appendChild(ok);
@@ -279,7 +281,7 @@ function cutoutPanel(c, run) {
       const f = inp.files && inp.files[0]; if (!f) return;
       if (f.size > 12e6) { fail("That file is too big", "Use a PNG under 12 MB."); return; }
       const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = rej; fr.readAsDataURL(f); });
-      try { const r = await api("/api/cutouts/" + c.sha + "/upload", { method: "POST", body: { png: b64, runId: run ? run.id : undefined } }); if (r.run) { paintRun(r.run); setBusy(true); poll(); } else { c.state = r.cutout.state; c.error = null; box.replaceWith(cutoutPanel(c, run)); } }
+      try { const r = await api("/api/cutouts/" + c.sha + "/upload", { method: "POST", body: { png: b64, runId: run ? run.id : undefined } }); if (r.run) { paintRun(r.run); setBusy(true); poll(); } else { await refreshPreview(); } }
       catch (e) { if (e.code !== "login") fail("That PNG couldn't be used", e.message); }
     };
     row.append(up, inp);

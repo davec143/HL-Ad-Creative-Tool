@@ -145,3 +145,50 @@ test("publicRun never leaks server paths", () => {
   assert.match(p.scene.preview, /\?v=scene-v1-prepared-preview.jpg$/);
   assert.match(p.items[0].file, /\?v=abc123$/);
 });
+
+test("cutout approval is bound to the viewed revision and its own run", async () => {
+  const a = await boot({ COMPOSED_TEMPLATES: "t1" });
+  try {
+    const first = "a".repeat(64), second = "b".repeat(64), cs = a.pipeline.cutouts;
+    fs.writeFileSync(cs.png(first), Buffer.from("first cutout pixels"));
+    fs.writeFileSync(cs.png(second), Buffer.from("second cutout pixels"));
+    const one = cs.put(first, { state: "auto", algo: 3 }), two = cs.put(second, { state: "auto", algo: 3 });
+    const run = a.pipeline.create({ form: FORM, picked: PICK });
+    run.cutout = { sha: second, state: "auto", revision: two.revision }; a.store.saveRun(run);
+    const mismatch = await a.req("/api/cutouts/" + first + "/approve", { method: "POST", body: { confirm: true, runId: run.id, revision: one.revision } });
+    assert.equal(mismatch.status, 400);
+    assert.equal(cs.get(first).state, "auto"); assert.equal(cs.get(second).state, "auto");
+    const oldImage = await a.req("/api/cutouts/" + first + "?v=" + one.revision);
+    assert.equal(oldImage.status, 200);
+    assert.equal(oldImage.headers.get("cache-control"), "private, no-store");
+    fs.writeFileSync(cs.png(first), Buffer.from("new corrected pixels"));
+    cs.put(first, { state: "auto", algo: 3 });
+    assert.equal((await a.req("/api/cutouts/" + first + "?v=" + one.revision)).status, 409, "an old preview URL never displays different pixels");
+    const stale = await a.req("/api/cutouts/" + first + "/approve", { method: "POST", body: { confirm: true, revision: one.revision } });
+    assert.equal(stale.status, 409); assert.equal(cs.get(first).state, "auto");
+    const missing = await a.req("/api/cutouts/" + first + "/approve", { method: "POST", body: { confirm: true } });
+    assert.equal(missing.status, 409);
+    const fresh = cs.get(first);
+    const approved = await a.req("/api/cutouts/" + first + "/approve", { method: "POST", body: { confirm: true, revision: fresh.revision } });
+    assert.equal(approved.status, 200); assert.equal(approved.json.cutout.state, "approved");
+    assert.equal(approved.json.cutout.revision, fresh.revision);
+    assert.equal(cs.get(second).state, "auto");
+  } finally { await a.close(); }
+});
+
+test("a run with older product pixels is shown held until it is recomposed", async () => {
+  const a = await boot({ COMPOSED_TEMPLATES: "t1" });
+  try {
+    const sha = "c".repeat(64), cs = a.pipeline.cutouts;
+    fs.writeFileSync(cs.png(sha), Buffer.from("corrected pixels"));
+    const current = cs.put(sha, { state: "uploaded" });
+    const run = a.pipeline.create({ form: FORM, picked: PICK });
+    run.cutout = { sha, state: "approved", revision: "old" };
+    run.items[0].file = "old.jpg";
+    const visible = publicRun(run, { cutouts: cs });
+    assert.equal(visible.cutout.revision, current.revision);
+    assert.equal(visible.cutout.stale, true);
+    assert.equal(visible.items[0].delivery.status, "held");
+    assert.match(visible.cutout.image, new RegExp("v=" + current.revision + "$"));
+  } finally { await a.close(); }
+});

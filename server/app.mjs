@@ -43,13 +43,19 @@ export function zip(files) {
 // What the page sees of a run (no server paths).
 export function publicRun(r, opts = {}) {
   if (!r) return null;
+  const c = r.cutout && (r.cutout.state !== "failed" && opts.cutouts && r.cutout.sha && opts.cutouts.get(r.cutout.sha) || r.cutout);
+  let runCutoutRevision = r.cutout && r.cutout.revision;
+  if (!runCutoutRevision && c && opts.store) {
+    try { runCutoutRevision = crypto.createHash("sha256").update(fs.readFileSync(opts.store.filePath(r.id, "cutout.png"))).digest("hex"); } catch { /* old run without a private cutout */ }
+  }
+  const cutoutStale = !!(c && c.revision && c.revision !== runCutoutRevision);
   return {
     id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo,
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
     source: r.S.source ? { sku: r.S.source.sku, variantTitle: r.S.source.variantTitle, price: r.S.source.price, stock: r.S.source.stock, imageSource: r.S.source.imageSource, sha256: r.S.source.sha256 || null, kept: !!r.S.source.file, error: r.S.source.fetchError || null } : null,
     composed: !!r.S.composed,
     scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, preparation: r.scene.preparation || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene?v=${encodeURIComponent(r.scene.preview)}` : null } : null,
-    cutout: r.cutout ? { sha: r.cutout.sha || null, state: r.cutout.state, error: r.cutout.error || null, image: r.cutout.sha && r.cutout.state !== "failed" ? `/api/cutouts/${r.cutout.sha}` : null } : null,
+    cutout: c ? { sha: c.sha || null, state: c.state, error: c.error || null, revision: c.revision || null, stale: cutoutStale, image: c.sha && c.state !== "failed" ? `/api/cutouts/${c.sha}${c.revision ? "?v=" + c.revision : ""}` : null } : null,
     preflight: r.preflight || null,
     driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
     attempts: (r.attempts || []).map((a) => ({ id: a.id, kind: a.kind, version: a.version, purpose: a.purpose, state: a.state, jobId: a.jobId, error: a.error, submittedAt: a.submittedAt, resolution: a.resolution || null, retryOf: a.retryOf })),
@@ -58,14 +64,14 @@ export function publicRun(r, opts = {}) {
       flags: x.flags, blocking: blockingFlags(x), mode: x.mode, at: x.at || null, grid: { x: x.logo.x, y: x.logo.y, where: x.logo.where },
       qa: x.qa, fidelity: x.fidelity || null, held: x.held, drive: x.drive, output: x.output || null,
       override: x.override ? { at: x.override.at, reason: x.override.reason, actor: x.override.actor, version: x.override.version } : null,
-      delivery: deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:\/\/[^?#]+$/.test(x.url || "") ? x.url : null,
+      delivery: cutoutStale && x.file ? { status: "held", deliverable: false, reasons: ["The product cutout changed. Re-compose this set to update every size before using it."] } : deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:\/\/[^?#]+$/.test(x.url || "") ? x.url : null,
       file: x.file ? `/api/runs/${r.id}/files/${x.file}${x.output && x.output.sha256 ? "?v=" + x.output.sha256 : ""}` : null, fileName: fileName(x),
     })),
   };
 }
 
 export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings = [], readiness = null }) {
-  const PR = { requireFidelity: !!cfg.requireFidelity };
+  const PR = { requireFidelity: !!cfg.requireFidelity, cutouts: pipeline.cutouts, store };
   const https = cfg.publicUrl.startsWith("https:");
   const publicOrigin = new URL(cfg.publicUrl).origin;
   // __Host- prefix: Secure, Path=/, no Domain — the browser enforces all three.
@@ -107,6 +113,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     };
   }
   function pipelineHttp(e) {
+    if (e.code === "stale_cutout") return new HttpError(409, e.message, e.code);
     if (!(e instanceof PipelineError)) return e;
     const status = { already_queued: 409, ambiguous: 409, busy: 409, shutting_down: 503, not_found: 404 }[e.code] || 400;
     return new HttpError(status, e.message, e.code);
@@ -257,10 +264,11 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       catch (e) { throw pipelineHttp(e); }
     }],
 
-    ["GET", /^\/api\/cutouts\/([0-9a-f]{64})$/, async (req, res, m) => {
+    ["GET", /^\/api\/cutouts\/([0-9a-f]{64})$/, async (req, res, m, url) => {
       const c = pipeline.cutouts.get(m[1]);
       if (!c) throw new HttpError(404, "No such cutout.");
-      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-cache" });
+      if (url.searchParams.has("v") && url.searchParams.get("v") !== c.revision) throw new HttpError(409, "The cutout changed. Refresh the preview.", "stale_cutout");
+      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-store" });
       res.end(fs.readFileSync(pipeline.cutouts.png(m[1])));
     }],
 
@@ -277,10 +285,16 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       const b = await body(req);
       if (b.confirm !== true) throw new HttpError(400, "Confirm you compared the cutout with the product photo.", "confirm");
       if (!pipeline.cutouts.get(m[1])) throw new HttpError(404, "No such cutout.");
-      const c = pipeline.cutouts.approve(m[1], actorOf(req));
-      let run = null;
-      if (b.runId) { runOr404(b.runId); try { run = publicRun(pipeline.approveCutout(b.runId, { actor: actorOf(req) }), PR); } catch (e) { throw pipelineHttp(e); } }
-      send(res, 200, { cutout: { sha: c.sha, state: c.state }, run });
+      if (b.runId) {
+        const r = runOr404(b.runId);
+        if (!r.cutout || r.cutout.sha !== m[1]) throw new HttpError(400, "That cutout doesn't belong to this set.");
+      }
+      if (!/^[0-9a-f]{64}$/.test(b.revision || "")) throw new HttpError(409, "Refresh the preview before approving this cutout.", "stale_cutout");
+      try {
+        const run = b.runId ? publicRun(await pipeline.approveCutout(b.runId, { actor: actorOf(req), revision: b.revision }), PR) : null;
+        const c = b.runId ? pipeline.cutouts.get(m[1]) : await pipeline.cutouts.approve(m[1], actorOf(req), b.revision);
+        send(res, 200, { cutout: { sha: c.sha, state: c.state, revision: c.revision }, run });
+      } catch (e) { throw pipelineHttp(e); }
     }],
 
     // A person's own cutout: {png: base64} of a PNG with a transparent background.
@@ -295,7 +309,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
         catch (e) { throw pipelineHttp(e); }
         return;
       }
-      try { const c = await pipeline.cutouts.upload(m[1], png, { python: cfg.python, actor: actorOf(req) }); send(res, 200, { cutout: { sha: c.sha, state: c.state } }); }
+      try { const c = await pipeline.cutouts.upload(m[1], png, { python: cfg.python, actor: actorOf(req) }); send(res, 200, { cutout: { sha: c.sha, state: c.state, revision: c.revision } }); }
       catch (e) { throw new HttpError(400, e.message); }
     }],
 

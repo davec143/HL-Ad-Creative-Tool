@@ -6,13 +6,13 @@ The product is never redrawn: the cutout keeps the photo's own pixels and only a
 A photo that already has real transparency (a supplied cutout PNG) is used as is. Otherwise the
 background is removed with IS-Net (isnet-general-use, ONNX, CPU) using rembg's pre/post-processing.
 
-The model can be unsure about parts of the product (a light panel, a band at the edge) and make
-them half-transparent, so the backdrop would show through the product in the ad. On a plain
-studio backdrop, refine() keeps the product's own pixels solid wherever the model hesitated:
-  - a half-transparent pixel whose colour clearly differs from the backdrop becomes solid;
-  - a gap enclosed by the product is solid if it's product-coloured, and stays transparent if it's
-    the backdrop showing through (a real hole, e.g. the centre of a strip reel).
-Background the model removed with confidence (alpha ~0, e.g. soft shadows) is never brought back.
+The model can mistake white printing and pictures on packaging for background. On a bright,
+plain studio backdrop, refinement follows the outside-connected photo background and keeps
+large, damaged printed product regions opaque. Neutral hardware is handled separately so its
+white body stays solid and compact mounting holes remain open. Model support and colour extent
+exclude pale floor reflections. Busy/non-white backgrounds keep the conservative model path.
+Only the alpha channel changes. This is still a reviewed cutout, not a guarantee of segmentation
+for every possible photograph: exact-white objects without visible boundaries remain ambiguous.
 
 The result is trimmed to the product (plus a small margin) and sanity-checked. It is not trusted
 blindly: the app shows it to a person once per product photo, and sets made with an unapproved
@@ -25,13 +25,13 @@ import os
 import sys
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 MODEL_DEFAULT = os.environ.get("CUTOUT_MODEL", "/opt/models/isnet-general-use.onnx")
 SIZE = 1024
 MIN_COVER, MAX_COVER = 0.02, 0.97  # share of the frame the product may plausibly fill
 PAD = 0.03
-ALGO = 2  # bump when the cutout method changes: unapproved automatic cutouts are redone
+ALGO = 3  # bump when the cutout method changes: unapproved automatic cutouts are redone
 
 
 def existing_alpha(im):
@@ -75,8 +75,101 @@ def enclosed(mask):
     return np.asarray(m)[1:-1, 1:-1] == 255
 
 
+def components(mask):
+    h, w = mask.shape
+    work = mask.copy()
+    result = []
+    for y, x in zip(*np.where(work)):
+        if not work[y, x]:
+            continue
+        work[y, x] = False
+        stack, pixels = [(y, x)], []
+        while stack:
+            j, i = stack.pop()
+            pixels.append((i, j))
+            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                yy, xx = j + dy, i + dx
+                if 0 <= yy < h and 0 <= xx < w and work[yy, xx]:
+                    work[yy, xx] = False
+                    stack.append((yy, xx))
+        result.append(np.array(pixels))
+    return sorted(result, key=len, reverse=True)
+
+
+def studio_repair(rgb, alpha, base):
+    bd = backdrop(rgb)
+    if bd is None:
+        return base
+    med, spread = bd
+    if med.min() < 240 or med.max() - med.min() > 8 or spread > 4:
+        return base
+    h, w = alpha.shape
+    near = np.abs(rgb.astype(float) - med).max(2) <= max(8, spread * 2)
+    border = np.concatenate([near[0], near[-1], near[:, 0], near[:, -1]])
+    if border.mean() < .60:
+        return base
+    retained = ~near | enclosed(near)
+    scaled = lambda v: np.asarray(Image.fromarray(v.astype(np.uint8)).resize((512, 512), Image.Resampling.NEAREST))
+    small = scaled(retained * 255) > 127
+    chroma = rgb.max(2).astype(int) - rgb.min(2).astype(int)
+    out = base.copy()
+    for pixels in components(small):
+        if len(pixels) < 100:
+            continue
+        mask = np.zeros((512, 512), np.uint8)
+        mask[pixels[:, 1], pixels[:, 0]] = 255
+        comp = np.asarray(Image.fromarray(mask).resize((w, h), Image.Resampling.NEAREST).filter(ImageFilter.MaxFilter(11))) > 0
+        comp &= retained
+        colorful = np.mean(chroma[comp] > 64) >= .05
+        if colorful:
+            # Broad missing regions indicate package artwork rejection; leave ordinary holes alone.
+            if np.mean(alpha[comp] < 32) < .20:
+                continue
+            ys, xs = np.where(comp)
+            y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+            keep = comp.copy()
+            lows = np.full(w, np.nan)
+            for x in range(x0, x1 + 1):
+                yy = np.where(comp[:, x] & (chroma[:, x] > 64))[0]
+                if len(yy):
+                    lows[x] = yy.max()
+            support = np.where(~np.isnan(lows))[0]
+            if len(support) > (x1 - x0) * .7:
+                floor = np.interp(np.arange(w), support, lows[support])
+                if np.median(floor[x0:x1 + 1]) > y0 + .65 * (y1 - y0):
+                    shadow = (np.arange(h)[:, None] > floor[None, :] + 3) & (rgb.min(2) > 160) & (chroma < 64) & (alpha < 220)
+                    # Broad fading reflections only; a small silver connector below
+                    # the package's coloured edge is still part of the product.
+                    if (comp & shadow).sum() > comp.sum() * .01:
+                        keep &= ~shadow
+                        out[comp & shadow] = 0
+            out[keep] = 255
+        else:
+            # Solid neutral hardware: keep its white body, use model support to exclude reflections.
+            for x in range(w):
+                yy = np.where(comp[:, x] & (alpha[:, x] > 240))[0]
+                if len(yy):
+                    support = comp[:, x] & (np.arange(h) <= yy.max() + 2) & (np.arange(h) >= yy.min() - 2)
+                    out[support, x] = 255
+            for hole in components(scaled(near & comp) > 0):
+                wh = hole.max(0) - hole.min(0) + 1
+                # Only compact openings with a dark rim; elongated seams/embossed letters are solid.
+                if len(hole) < 26 or len(hole) > len(pixels) * .02 or wh.min() / wh.max() < .25:
+                    continue
+                hm = np.zeros((512, 512), np.uint8)
+                hm[hole[:, 1], hole[:, 0]] = 255
+                hm = np.asarray(Image.fromarray(hm).resize((w, h), Image.Resampling.NEAREST).filter(ImageFilter.MaxFilter(7))) > 0
+                rim = hm & ~near & comp
+                if rim.sum() and np.median(rgb[rim].min(1)) < 220:
+                    out[hm & near & comp] = 0
+    # Colour alone cannot distinguish a white object edge from its white backdrop.
+    # Preserve confident model foreground when the photographic boundary is ambiguous.
+    out[~retained & (alpha < 220)] = 0
+    return out
+
+
 def refine(rgb, alpha):
-    """Keep the product solid where the model hesitated (see the module docstring)."""
+    """Restore product opacity and studio packaging without changing source RGB."""
     bd = backdrop(rgb)
     if bd is None:
         return alpha, 0.0
@@ -89,8 +182,9 @@ def refine(rgb, alpha):
     holes = enclosed(a < 0.5)
     boost = np.where(unsure | holes, colored, 0.0)
     out = np.maximum(a, boost)
-    gained = float(((out - a) > 0.25).mean())
-    return (out * 255 + 0.5).astype(np.uint8), gained
+    repaired = studio_repair(rgb, alpha, (out * 255 + 0.5).astype(np.uint8))
+    gained = float(((repaired.astype(float) - alpha) > 64).mean())
+    return repaired, gained
 
 
 def clean(alpha):
@@ -134,7 +228,7 @@ def main(argv):
     y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + 1 + pad)
     rgba = np.dstack([rgb, alpha])[y0:y1, x0:x1]
     Image.fromarray(rgba, "RGBA").save(out, "PNG", optimize=True)
-    res.update(ok=True, width=int(x1 - x0), height=int(y1 - y0))
+    res.update(ok=True, width=int(x1 - x0), height=int(y1 - y0), crop=[int(x0), int(y0), int(x1), int(y1)])
     print("RESULT " + json.dumps(res))
 
 

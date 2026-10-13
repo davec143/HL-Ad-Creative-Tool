@@ -3,7 +3,7 @@
 A standalone web app that turns one Shopify product (an exact variant) and a short message into a brand-locked Meta **image** ad at three **placement sizes**: **1080×1080, 1080×1920 and 1200×628**. It's one concept reflowed to three aspect ratios, not three designs and not three creative variants (see `docs/CREATIVE_DIVERSITY.md`). It rebuilds the Claude-artifact Ad Builder (v16) as its own server, with no Claude account, artifact runtime or connectors.
 
 **Status:**
-- **Image pipeline:** implemented and covered by automated tests. **Not yet live-tested** against Higgsfield, Shopify, an LLM or Drive. `PLAN.md` § *Current state* lists exactly what is and isn't verified.
+- **Image pipeline:** implemented and covered by automated tests. The COB promotion set was verified live with Shopify, the existing Higgsfield scene, scene checks and Drive on October 13, 2026. Cutout recovery is also checked against the EZDim and Luma product photos; this does not guarantee segmentation accuracy for every new photo.
 - **Video:** planned only (`VIDEO_PLAN.md`).
 
 ## How a set is made
@@ -11,7 +11,7 @@ A standalone web app that turns one Shopify product (an exact variant) and a sho
 ### All five templates: composed (the image model never draws the ad)
 
 1. **Product.** Same as below: an exact Shopify variant, frozen into the set.
-2. **Cutout.** The product photo's background is removed locally (IS-Net, free). The photo's own pixels are kept, so the hardware is exact. A person checks each cutout **once** (or uploads their own PNG); after that, every set with that photo can auto-deliver.
+2. **Cutout.** The product photo's background is removed locally (IS-Net plus studio-photo repair, free). Only transparency changes: source RGB pixels are preserved. For damaged packaging on a plain white backdrop, outside-connected background removal restores white printing and complete package faces; neutral hardware, mounting holes and broad floor reflections are handled separately. A person checks each cutout **once** (or uploads their own PNG). Approval is tied to the exact PNG revision. Replacing a cutout invalidates and rebuilds dependent ads before delivery, and stale preview approvals are rejected. Algorithm upgrades rebuild unapproved automatic cutouts when previewed, resumed, rechecked or recomposed; uploaded and approved corrections are preserved.
 3. **Free layout check.** All three sizes are laid out before anything is paid for. Copy that doesn't fit fails here, with the field named.
 4. **One paid render.** Higgsfield renders **one scene photograph** (no text, product, logo or panels). About 2 credits, shared by all three sizes.
 5. **Scene preparation and check.** Plain white padding at the outside edges is cropped locally, with the original render preserved. A vision model checks the prepared photo alone for stray lettering, panels, faces or close-up devices. The composer uses those same prepared pixels. If a source detail fails or is uncertain, the model also checks all three finished ads against the original product photo: hidden, cropped-out or unrecognizable blurred details are judged at their actual displayed size. This verdict is bound to the exact output bytes; visible defects, uncertainty and check errors still hold delivery. Existing sets can use **Re-compose** or **Repair margins and recheck** to recover without another Higgsfield render.

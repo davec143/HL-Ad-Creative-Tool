@@ -34,9 +34,12 @@ im = Image.new("RGBA", (500, 800), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
 d.rounded_rectangle((60, 40, 440, 760), 40, fill=(245, 245, 245, 255), outline=(190, 190, 190, 255), width=6)
 d.rounded_rectangle((150, 180, 350, 620), 20, fill=(255, 255, 255, 255), outline=(200, 200, 200, 255), width=4)
 im.save("${FIX}/cut.png")
+d.rectangle((170, 200, 330, 580), fill=(90, 35, 150, 255))
+im.save("${FIX}/cut-alternate.png")
 Image.new("RGB", (600, 600), (255, 255, 255)).save("${FIX}/flat.jpg")
 `]);
 const CUT_PNG = fs.readFileSync(path.join(FIX, "cut.png"));
+const ALT_PNG = fs.readFileSync(path.join(FIX, "cut-alternate.png"));
 const FLAT_JPG = fs.readFileSync(path.join(FIX, "flat.jpg"));
 
 const PHONE = "+1 855 768 4135", EMAIL = "customerservice@hitlights.com";
@@ -206,7 +209,7 @@ test("an automatic cutout holds the set until a person approves it (once, for ev
   assert.equal(r.status, "done");
   assert.ok(r.items.every((x) => x.held && deliverability(x).reasons.some((m) => /cutout/.test(m))));
   assert.equal(drive.uploads.length, 0);
-  pipeline.approveCutout(run.id, { actor: "t" });
+  await pipeline.approveCutout(run.id, { actor: "t", revision: cs.get(sha).revision });
   await settle(pipeline);
   r = store.getRun(run.id);
   assert.equal(r.cutout.state, "approved");
@@ -407,12 +410,144 @@ test("an unapproved automatic cutout from an older method is redone; approved on
   const dir = tmp(), cs = new CutoutStore(dir), src = path.join(dir, "p.png");
   fs.writeFileSync(src, CUT_PNG);
   const sha = sha256(CUT_PNG);
-  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model", algo: 1 });
+  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model", algo: 2 });
   const r = await cs.ensure(src, { python: PY, model: "/nonexistent.onnx" });
   assert.equal(r.state, "uploaded", "redone (this photo already has transparency, so it counts as supplied)");
+  assert.equal(r.algo, CUTOUT_ALGO);
   cs.put(sha, { state: "approved", source: "model", algo: 1 });
+  const approvedBytes = fs.readFileSync(cs.png(sha));
   const k = await cs.ensure(src, { python: PY, model: "/nonexistent.onnx" });
   assert.equal(k.state, "approved", "a person's approval is never thrown away");
+  assert.deepEqual(fs.readFileSync(cs.png(sha)), approvedBytes);
+  cs.put(sha, { state: "uploaded", source: "uploaded", algo: 1 });
+  const uploaded = await cs.ensure(src, { python: PY, model: "/nonexistent.onnx" });
+  assert.equal(uploaded.state, "uploaded");
+  assert.equal(uploaded.algo, 1, "a person's supplied pixels are never regenerated");
+});
+
+test("shared cutout operations serialize across stores and never overwrite an upload", async () => {
+  const dir = tmp(), cs = new CutoutStore(dir), other = new CutoutStore(dir), src = path.join(dir, "source.png");
+  fs.writeFileSync(src, CUT_PNG);
+  const sha = sha256(CUT_PNG);
+  const [one, two] = await Promise.all([cs.ensure(src, { python: PY }), other.ensure(src, { python: PY })]);
+  assert.equal(one.at, two.at, "the second ensure reuses the first completed result");
+  cs.put(sha, { state: "auto", source: "model", algo: 2 });
+  const [rebuilt, uploaded] = await Promise.all([cs.ensure(src, { python: PY }), other.upload(sha, ALT_PNG, { python: PY, actor: "t" })]);
+  assert.notEqual(rebuilt.revision, uploaded.revision);
+  assert.equal(cs.get(sha).revision, uploaded.revision);
+  assert.equal(cs.get(sha).source, "uploaded");
+  assert.equal((await cs.ensure(src, { python: PY })).revision, uploaded.revision);
+  await assert.rejects(cs.approve(sha, "t", rebuilt.revision), { code: "stale_cutout" });
+  assert.equal(cs.get(sha).state, "uploaded", "stale approval cannot modify the newer cutout");
+  assert.ok(!fs.readdirSync(cs.dir).some((f) => f.includes(".tmp") || f.includes(".upload.")));
+});
+
+test("a cutout changed while approval waits is rejected without failing the finished run", async () => {
+  const { pipeline, store, dir } = setup();
+  const cs = new CutoutStore(dir), sha = sha256(CUT_PNG);
+  fs.writeFileSync(cs.png(sha), CUT_PNG);
+  const c = cs.put(sha, { state: "auto", algo: CUTOUT_ALGO });
+  const run = pipeline.create({ form: formT1(), picked: PICK });
+  run.cutout = { sha, state: "auto", revision: c.revision }; run.status = "done"; store.saveRun(run);
+  let release;
+  const pause = new Promise((resolve) => { release = resolve; });
+  pipeline.enqueue("another", () => pause);
+  const approval = pipeline.approveCutout(run.id, { actor: "t", revision: c.revision });
+  fs.writeFileSync(cs.png(sha), ALT_PNG); cs.put(sha, { state: "auto", algo: CUTOUT_ALGO });
+  release();
+  await assert.rejects(approval, { code: "stale_cutout" });
+  assert.equal(store.getRun(run.id).status, "done");
+  assert.equal(cs.get(sha).state, "auto");
+  assert.equal(pipeline.pending.has(run.id), false);
+});
+
+test("an invalid replacement PNG leaves a completed run and its approved cutout intact", async () => {
+  const { pipeline, store, dir } = setup();
+  const cs = new CutoutStore(dir), sha = sha256(CUT_PNG);
+  fs.writeFileSync(cs.png(sha), CUT_PNG);
+  const c = cs.put(sha, { state: "approved", algo: CUTOUT_ALGO });
+  const run = pipeline.create({ form: formT1(), picked: PICK });
+  run.cutout = { sha, state: "approved", revision: c.revision }; run.status = "done"; run.error = null; store.saveRun(run);
+  const before = store.getRun(run.id);
+  await assert.rejects(pipeline.uploadCutout(run.id, Buffer.from("not a PNG"), { actor: "t" }), { code: "bad_request" });
+  assert.deepEqual(store.getRun(run.id), before);
+  assert.equal(cs.get(sha).revision, c.revision);
+  assert.equal(cs.get(sha).state, "approved");
+  assert.equal(pipeline.pending.has(run.id), false);
+});
+
+test("approval, recheck and Drive recovery persist their running state and expose partial failures", async () => {
+  for (const action of ["approve", "recheck", "drive"]) {
+    const { pipeline, store, dir } = setup();
+    const cs = new CutoutStore(dir), sha = sha256(CUT_PNG);
+    fs.writeFileSync(cs.png(sha), CUT_PNG);
+    const c = cs.put(sha, { state: "auto", algo: CUTOUT_ALGO });
+    const run = pipeline.create({ form: formT1(), picked: PICK });
+    run.cutout = { sha, state: "auto", revision: c.revision }; run.status = "done"; run.scene.file = "scene.png"; store.saveRun(run);
+    pipeline.stepCutout = async () => assert.equal(store.getRun(run.id).status, "running", action + " must survive a restart during recovery");
+    pipeline.stepSceneFetch = async () => {};
+    pipeline.stepSceneQa = async (r) => { r.scene.qa = { state: "pass", version: 1 }; };
+    pipeline.stepCompose = async (r, list) => {
+      assert.equal(store.getRun(run.id).status, "running");
+      for (const x of list) { x.state = "failed"; x.error = "Injected composition failure"; }
+    };
+    if (action === "approve") await pipeline.approveCutout(run.id, { actor: "t", revision: c.revision });
+    else if (action === "recheck") pipeline.recheck(run.id);
+    else pipeline.saveToDrive(run.id);
+    await settle(pipeline);
+    const after = store.getRun(run.id);
+    assert.equal(after.status, "partial", action + " must offer recovery for a missing size");
+    assert.ok(after.items.every((x) => x.state === "failed"));
+    assert.equal(pipeline.pending.has(run.id), false);
+  }
+});
+
+test("approving a changed shared cutout recomposes the old run before Drive delivery", { skip: !HAS_BROWSER && "no Chromium" }, async () => {
+  const drive = mockDrive();
+  const { pipeline, store, dir, renderer } = setup({ drive, photo: FLAT_JPG });
+  const cs = new CutoutStore(dir), sha = sha256(FLAT_JPG);
+  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model", algo: CUTOUT_ALGO });
+  const run = pipeline.start(pipeline.create({ form: formT1(), picked: PICK, saveDrive: true }));
+  await settle(pipeline);
+  const before = store.getRun(run.id), originalHashes = before.items.map((x) => x.output.sha256);
+  const replacement = await cs.upload(sha, ALT_PNG, { python: PY, actor: "t" });
+  cs.put(sha, { ...replacement, state: "auto", source: "model", algo: CUTOUT_ALGO });
+  await assert.rejects(pipeline.approveCutout(run.id, { actor: "t", revision: before.cutout.revision }), { code: "stale_cutout" });
+  assert.equal(store.getRun(run.id).status, before.status, "a rejected old preview is not a failed run");
+  await pipeline.approveCutout(run.id, { actor: "t", revision: replacement.revision });
+  const after = store.getRun(run.id);
+  assert.equal(after.cutout.revision, replacement.revision);
+  assert.equal(sha256(fs.readFileSync(pipeline.cutoutFile(after))), replacement.revision);
+  assert.ok(after.items.every((x, i) => x.output.sha256 !== originalHashes[i]));
+  assert.ok(after.items.every((x) => x.cutout.revision === replacement.revision && deliverability(x).deliverable));
+  assert.equal(drive.uploads.length, 3);
+  assert.equal(renderer.accepted.length, 1, "the original scene is reused without another paid render");
+});
+
+test("recheck replaces changed cutout pixels and clears approvals for the old output", { skip: !HAS_BROWSER && "no Chromium" }, async () => {
+  const { pipeline, store, dir, renderer } = setup({ photo: FLAT_JPG });
+  const cs = new CutoutStore(dir), sha = sha256(FLAT_JPG);
+  fs.writeFileSync(cs.png(sha), CUT_PNG); cs.put(sha, { state: "auto", source: "model", algo: CUTOUT_ALGO });
+  const run = pipeline.start(pipeline.create({ form: formT1(), picked: PICK }));
+  await settle(pipeline);
+  const before = store.getRun(run.id), originalHashes = before.items.map((x) => x.output.sha256);
+  for (const x of before.items) { x.override = { version: x.version, file: x.file }; x.driveUpload = { state: "uploading", name: "stale.jpg" }; }
+  before.scene.qa = { state: "pass", scope: "visible_scene", outputHash: "old", approved: { actor: "t" }, sourceCheck: { state: "pass", version: 1 }, version: 1 };
+  store.saveRun(before);
+  const replacement = await cs.upload(sha, ALT_PNG, { python: PY, actor: "t" });
+  pipeline.recheck(run.id); await settle(pipeline);
+  const after = store.getRun(run.id);
+  assert.equal(after.cutout.revision, replacement.revision);
+  assert.ok(after.items.every((x, i) => x.output.sha256 !== originalHashes[i] && x.override === null && x.driveUpload === null));
+  assert.equal(after.scene.qa.approved, undefined);
+  assert.equal(renderer.accepted.length, 1);
+  after.items[0].state = "failed"; after.items[0].file = null; after.items[0].output = null;
+  after.status = "partial"; store.saveRun(after);
+  pipeline.resume(run.id); await settle(pipeline);
+  const resumed = store.getRun(run.id);
+  assert.equal(resumed.status, "done");
+  assert.ok(resumed.items.every((x) => x.file && x.state === "done"));
+  assert.equal(renderer.accepted.length, 1, "Resume retries failed local composition without another scene");
 });
 
 test("COMPOSED_TEMPLATES= sends T1 back down the original pipeline", () => {

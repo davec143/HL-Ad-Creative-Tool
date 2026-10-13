@@ -32,7 +32,7 @@ import crypto from "node:crypto";
 import { isComposed, layoutFor, SCENE_ASPECT } from "../composer/templates.mjs";
 import { ComposeError } from "../composer/render.mjs";
 import { scenePrompt, sceneParams, SCENE_SCHEMA, sceneCheckPrompt, visibleSceneCheckPrompt, parseSceneCheck } from "../core/scene.mjs";
-import { CutoutStore, cutoutApproved, imageUri, composeToJpeg } from "./compose.mjs";
+import { CutoutStore, cutoutApproved, imageUri, composeToJpeg, sha256 } from "./compose.mjs";
 import { runPython } from "./py.mjs";
 import { ROOT } from "./config.mjs";
 import { sniffImage } from "./providers/llm.mjs";
@@ -167,7 +167,7 @@ export class Pipeline {
 
   // Serialize all work: one run (or regeneration) at a time, like v16's busy lock. A run that is
   // already queued or active can't be queued again (double-clicked Resume, two tabs...).
-  enqueue(id, fn) {
+  enqueue(id, fn, { preserveOnError = [] } = {}) {
     if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is already queued or running.");
     if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Try again in a minute.");
     this.pending.add(id);
@@ -176,7 +176,7 @@ export class Pipeline {
       try { await fn(); }
       catch (e) {
         const r = this.store.getRun(id);
-        if (r) {
+        if (r && e.code !== "stale_cutout" && !preserveOnError.includes(e.code)) {
           r.status = "failed"; r.error = { code: e.code || "error", message: e.message };
           this.log(r, "Stopped — " + e.message, "err"); this.save(r);
         }
@@ -587,7 +587,7 @@ export class Pipeline {
       await this.stepScene(run);
       await this.stepSceneFetch(run);
       await this.stepSceneQa(run);
-      await this.stepCompose(run, run.items.filter((x) => !x.file && x.state !== "failed"));
+      await this.stepCompose(run, run.items.filter((x) => !x.file));
       await this.stepVisibleSceneQa(run);
       await this.stepDrive(run, run.items.filter((x) => x.file && !x.drive));
       run.status = run.items.some((x) => x.state === "failed") ? "partial" : "done";
@@ -607,6 +607,13 @@ export class Pipeline {
 
   cutoutFile(run) { return this.store.filePath(run.id, "cutout.png"); }
 
+  invalidateCutoutOutputs(run) {
+    run.preflight = null;
+    for (const x of run.items) Object.assign(x, { file: null, output: null, drive: null, driveUpload: null, override: null, sceneQa: null, state: "waiting", held: true, error: null });
+    // A finished-background verdict/approval belongs to those exact output pixels.
+    if (run.scene && run.scene.qa && run.scene.qa.scope === "visible_scene") run.scene.qa = run.scene.qa.sourceCheck || null;
+  }
+
   // The real product photo with its background removed. Made once per product photo and reused;
   // a person approves it once (or uploads their own), after which sets with it can auto-deliver.
   // The set keeps its own copy of the cutout; it's refreshed whenever the shared one changed
@@ -615,9 +622,12 @@ export class Pipeline {
     const fresh = !(run.cutout && run.cutout.sha);
     if (fresh) this.log(run, "Cutting the product out of its photo…");
     const c = await this.cutouts.ensure(this.store.filePath(run.id, run.S.source.file), { python: this.cfg.python, model: this.cfg.cutoutModel });
-    const same = !fresh && run.cutout.at === c.at && fs.existsSync(this.cutoutFile(run));
-    run.cutout = { sha: c.sha, state: c.state, error: c.error || null, at: c.at || null };
-    if (same) { this.save(run); return; }
+    let previousRevision = null;
+    try { previousRevision = sha256(fs.readFileSync(this.cutoutFile(run))); } catch { /* first use */ }
+    const same = c.state !== "failed" && previousRevision === c.revision;
+    run.cutout = { sha: c.sha, state: c.state, error: c.error || null, at: c.at || null, revision: c.revision || null, algo: c.algo || null };
+    if (same) { this.save(run); return false; }
+    this.invalidateCutoutOutputs(run);
     if (c.state === "failed") {
       this.save(run);
       throw new PipelineError("cutout", "Couldn't cut the product out of its photo: " + c.error + ". Upload a PNG of the product with a transparent background, then press Resume. Nothing was rendered or charged.");
@@ -625,6 +635,7 @@ export class Pipeline {
     fs.copyFileSync(this.cutouts.png(c.sha), this.cutoutFile(run));
     this.log(run, cutoutApproved(c) ? "Using the approved product cutout." : "Product cut out of its photo. Check it once (Approve cutout) — sets with this product are held until it's approved.", cutoutApproved(c) ? "ok" : "run");
     this.save(run);
+    return true;
   }
 
   // Free: lay out every size with a placeholder scene. Copy that doesn't fit stops the set here,
@@ -773,20 +784,41 @@ export class Pipeline {
   syncComposed(run) {
     if (!run.S.composed) return;
     for (const x of run.items) {
-      x.cutout = run.cutout ? { state: run.cutout.state, sha: run.cutout.sha } : null;
+      x.cutout = run.cutout ? { state: run.cutout.state, sha: run.cutout.sha, revision: run.cutout.revision } : null;
       x.sceneQa = run.scene && run.scene.qa ? { ...run.scene.qa } : null;
     }
   }
 
+  // Free recovery shared by approvals, rechecks and Drive saves. Persist the active
+  // lifecycle before awaiting work, so a restart resumes any unfinished composition.
+  async refreshComposed(run, { recheckScene = false, kind = null } = {}) {
+    run.status = "running"; run.error = null; this.save(run);
+    await this.stepCutout(run);
+    if (!run.scene || !run.scene.file) throw new PipelineError("scene_missing", "This set has no saved scene photo yet. Resume the set to continue.");
+    await this.stepSceneFetch(run);
+    if (recheckScene) run.scene.qa = null;
+    await this.stepSceneQa(run);
+    await this.stepCompose(run, run.items.filter((x) => !x.file));
+    await this.stepVisibleSceneQa(run);
+    await this.stepDrive(run, run.items.filter((x) => !kind || x.kind === kind));
+    run.status = run.items.some((x) => x.state === "failed" || !x.file) ? "partial" : "done";
+    this.save(run);
+  }
+
   // A person checked the cutout against the product photo: approved once, for every set using it.
-  approveCutout(id, { actor }) {
+  async approveCutout(id, { actor, revision }) {
     const run = this.store.getRun(id);
     if (!run || !run.cutout || !run.cutout.sha || run.cutout.state === "failed") throw new PipelineError("bad_request", "This set has no product cutout to approve.");
-    const c = this.cutouts.approve(run.cutout.sha, actor);
-    run.cutout.state = c.state;
-    this.log(run, "Product cutout approved.", "ok");
-    this.save(run);
-    return this.saveToDrive(id);
+    const current = this.cutouts.get(run.cutout.sha);
+    if (!current || !revision || current.revision !== revision) throw new PipelineError("stale_cutout", "The cutout changed since this preview. Refresh and compare it again before approving.");
+    await this.enqueue(id, async () => {
+      const r = this.store.getRun(id);
+      await this.cutouts.approve(r.cutout.sha, actor, revision);
+      this.log(r, "Product cutout approved.", "ok");
+      r.saveDrive = true;
+      await this.refreshComposed(r);
+    });
+    return this.store.getRun(id);
   }
   // A person supplies their own cutout PNG: it replaces the automatic one, and the set is
   // re-composed (free) or resumed if it stopped at the cutout.
@@ -796,15 +828,15 @@ export class Pipeline {
     if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is busy. Try again when it stops.");
     const sha = run.cutout && run.cutout.sha;
     if (!sha) throw new PipelineError("bad_request", "This set hasn't got as far as the product photo yet.");
-    let c;
-    try { c = await this.cutouts.upload(sha, png, { python: this.cfg.python, actor }); }
-    catch (e) { throw new PipelineError("bad_request", e.message); }
-    fs.copyFileSync(this.cutouts.png(sha), this.cutoutFile(run));
-    run.cutout = { sha, state: c.state, error: null }; run.preflight = null;
-    this.log(run, "Product cutout replaced with an uploaded PNG.", "ok");
-    this.save(run);
-    if (run.scene && run.scene.file) return this.refinish(id);
-    return this.resume(id);
+    await this.enqueue(id, async () => {
+      const r = this.store.getRun(id);
+      try { await this.cutouts.upload(sha, png, { python: this.cfg.python, actor }); }
+      catch (e) { throw new PipelineError("bad_request", e.message); }
+      this.log(r, "Product cutout replaced with an uploaded PNG.", "ok");
+      r.status = "running"; r.error = null; this.save(r);
+      await this.processComposed(r);
+    }, { preserveOnError: ["bad_request"] });
+    return this.store.getRun(id);
   }
   approveScene(id, { note, actor }) {
     const run = this.store.getRun(id), q = run && run.scene && run.scene.qa;
@@ -830,7 +862,7 @@ export class Pipeline {
       catch (e) { throw new PipelineError("bad_request", "Couldn't download the product photo: " + e.message); }
       c = await this.cutouts.ensure(src, { python: this.cfg.python, model: this.cfg.cutoutModel });
     } finally { try { fs.unlinkSync(src); } catch { /* none */ } }
-    const cutout = { sha: c.sha, state: c.state, error: c.error || null };
+    const cutout = { sha: c.sha, state: c.state, error: c.error || null, revision: c.revision || null };
     if (c.state === "failed") return { cutout, sizes: [] };
     const product = imageUri(this.cutouts.png(c.sha)), sizes = [];
     for (const kind of KINDS) {
@@ -921,13 +953,7 @@ export class Pipeline {
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
       if (r.S.composed) {
-        if (r.scene && r.scene.file) {
-          await this.stepSceneFetch(r);
-          r.scene.qa = null; await this.stepSceneQa(r);
-          await this.stepCompose(r, r.items.filter((x) => !x.file));
-          await this.stepVisibleSceneQa(r);
-        }
-        await this.stepDrive(r, r.items.filter((x) => x.file));
+        await this.refreshComposed(r, { recheckScene: true });
         return;
       }
       const list = r.items.filter((x) => x.file && (!kind || x.kind === kind));
@@ -943,6 +969,10 @@ export class Pipeline {
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
       r.saveDrive = true; r.driveError = null;
+      if (r.S.composed) {
+        await this.refreshComposed(r, { kind });
+        return;
+      }
       await this.stepDrive(r, r.items.filter((x) => !kind || x.kind === kind));
     });
     return this.store.getRun(id);

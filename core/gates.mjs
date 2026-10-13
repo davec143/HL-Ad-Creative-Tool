@@ -72,7 +72,7 @@ function composedGate(x, reasons) {
   else if (s.state === "error") { reasons.push("The scene photo check couldn't run" + (s.message ? ": " + s.message : ".")); unchecked = true; }
   else if (s.state === "running") { reasons.push("The scene photo check is still running."); unchecked = true; }
   else if (s.state === "uncertain" && !s.approved) reasons.push("The scene photo check is unsure: look at the scene and approve it if it's clean.");
-  else if (s.state === "fail") reasons.push("SCENE: the scene photo has " + ((s.issues && s.issues.length) ? s.issues.join("; ") : "a problem") + ". Make a new set to get a new scene.");
+  else if (s.state === "fail") reasons.push("SCENE: " + ((s.issues && s.issues.length) ? s.issues.join("; ") : "The scene photo has a problem.") + " Re-compose to remove plain white margins and recheck at no Higgsfield cost. Other defects need a new scene.");
   else if (!["pass", "uncertain"].includes(s.state)) { reasons.push("Unknown scene check state."); unchecked = true; }
   return finalize(x, reasons, unchecked, null);
 }

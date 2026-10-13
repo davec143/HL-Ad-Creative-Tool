@@ -48,7 +48,7 @@ export function publicRun(r, opts = {}) {
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
     source: r.S.source ? { sku: r.S.source.sku, variantTitle: r.S.source.variantTitle, price: r.S.source.price, stock: r.S.source.stock, imageSource: r.S.source.imageSource, sha256: r.S.source.sha256 || null, kept: !!r.S.source.file, error: r.S.source.fetchError || null } : null,
     composed: !!r.S.composed,
-    scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene` : null } : null,
+    scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, preparation: r.scene.preparation || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene` : null } : null,
     cutout: r.cutout ? { sha: r.cutout.sha || null, state: r.cutout.state, error: r.cutout.error || null, image: r.cutout.sha && r.cutout.state !== "failed" ? `/api/cutouts/${r.cutout.sha}` : null } : null,
     preflight: r.preflight || null,
     driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,

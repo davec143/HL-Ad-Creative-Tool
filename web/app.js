@@ -242,9 +242,9 @@ function paintPreview(p) {
 }
 
 // ---------- product cutout: checked once per product photo ----------
-const CUTOUT_LABEL = { auto: "Product cutout: made automatically — check it once", approved: "Product cutout: approved", uploaded: "Product cutout: your own PNG", failed: "Product cutout: couldn't be made" };
+const CUTOUT_LABEL = { auto: "Product cutout: ready for your one-time review", approved: "Product cutout: approved", uploaded: "Product cutout: your own PNG", failed: "Product cutout: couldn't be made" };
 function cutoutPanel(c, run) {
-  const box = el("div", "qa " + (c && (c.state === "approved" || c.state === "uploaded") ? "pass" : "fail"));
+  const box = el("div", "qa " + (c && (c.state === "approved" || c.state === "uploaded") ? "pass" : c && c.state === "auto" ? "review" : "fail"));
   if (!c) { box.textContent = "Product cutout: not made yet."; return box; }
   box.appendChild(el("b", null, CUTOUT_LABEL[c.state] || c.state));
   if (c.error) box.appendChild(el("div", null, c.error));
@@ -296,9 +296,10 @@ function scenePanel(r, working) {
   if (X.state === "ambiguous" && X.attemptId) { box.appendChild(decisionPanel(r, { ...X, dims: "scene photo" }, working)); return box; }
   if (X.preview) { const i = el("img"); i.src = X.preview; i.alt = "Scene photo"; box.appendChild(i); }
   else box.appendChild(el("span", "dim", { waiting: "Waiting for the cutout and the copy check…", rendering: "Rendering…", failed: "Didn't render. " + (X.error || "") }[X.state] || X.state));
+  if (X.preparation && X.preparation.cropped) box.appendChild(el("div", "dim", "Plain white margins removed from the existing render. Original preserved; no extra Higgsfield credits."));
   const q = X.qa;
   if (q) {
-    const label = { pass: "Scene check: clean photo — no stray text, panels, faces or devices.", fail: "Scene check: failed — make a new set for a new scene.", uncertain: "Scene check: unsure — look at the photo yourself.", running: "Scene check: looking at the photo…", off: "Scene check: off (no language model configured) — look at the photo yourself.", error: "Scene check: couldn't run (" + (q.message || q.code || "error") + ")." }[q.state] || q.state;
+    const label = { pass: "Scene check: clean photo — no stray text, panels, faces or devices.", fail: "Scene check: needs repair or review.", uncertain: "Scene check: unsure — look at the photo yourself.", running: "Scene check: looking at the photo…", off: "Scene check: off (no language model configured) — look at the photo yourself.", error: "Scene check: couldn't run (" + (q.message || q.code || "error") + ")." }[q.state] || q.state;
     const d = el("div", "qa " + (q.state === "pass" || q.approved ? "pass" : "fail")); d.appendChild(el("b", null, label));
     if (q.issues && q.issues.length) { const ul = el("ul"); q.issues.forEach((i) => ul.appendChild(el("li", null, i))); d.appendChild(ul); }
     if (q.approved) d.appendChild(el("div", "dim", "Approved by a person " + new Date(q.approved.at).toLocaleString()));
@@ -310,7 +311,9 @@ function scenePanel(r, working) {
         catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
       };
       d.appendChild(b);
-    } else if (q.state === "error" && !working) { const b = el("button", "linkbtn", "Run it again"); b.type = "button"; b.onclick = () => act("recheck"); d.appendChild(b); }
+    } else if (["fail", "error"].includes(q.state) && !working) {
+      const b = el("button", "linkbtn", "Repair margins and recheck (0 Higgsfield credits)"); b.type = "button"; b.onclick = () => act("recheck"); d.appendChild(b);
+    }
     box.appendChild(d);
   }
   return box;

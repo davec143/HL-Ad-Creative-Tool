@@ -19,6 +19,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: npm ci
+      - name: Install Chromium so composition tests run instead of skipping
+        run: npx --no-install playwright-core install --with-deps chromium
       - run: python -m pip install -r requirements-dev.txt
       - name: finish.py is byte-identical to v16
         run: cmp finishing/finish.py legacy/v16/source/finish.py

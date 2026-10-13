@@ -1,6 +1,7 @@
 // Renders a composed ad size with headless Chromium. One browser is reused; renders are serialised
 // (the pipeline already runs one set at a time, and previews are small).
 import fs from "node:fs";
+import { chromium } from "playwright-core";
 import { buildHtml, pageScript, FIELD_NAMES, FONT_WEIGHTS, ALLOWED_TEXT } from "./page.mjs";
 
 const CANDIDATES = [process.env.CHROMIUM_PATH, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
@@ -14,6 +15,8 @@ export function chromiumPath() {
       for (const sub of ["chrome-linux/chrome", "chrome-linux64/chrome"]) { const p = base + "/" + d + "/" + sub; if (fs.existsSync(p)) return p; }
     }
   } catch { /* none */ }
+  const bundled = chromium.executablePath();
+  if (fs.existsSync(bundled)) return bundled;
   return null;
 }
 
@@ -39,7 +42,6 @@ export class Composer {
   async ensure() {
     if (this.browser && this.browser.isConnected()) return this.browser;
     if (this.launchImpl) { this.browser = await this.launchImpl(); return this.browser; }
-    const { chromium } = await import("playwright-core");
     const args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--font-render-hinting=none", "--disable-lcd-text"];
     // Prefer Playwright's own headless build for its version (what the Docker image installs);
     // fall back to any Chromium found on this machine (development).

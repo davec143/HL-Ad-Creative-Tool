@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Store } from "./store.mjs";
-import { finishOne, fetchRender, validateOutput } from "./finish.mjs";
+import { finishOne, fetchRender, validateOutput, parseResult } from "./finish.mjs";
 import { snapshot, renderParams, repaintParams, qaPrompt } from "../core/engine.mjs";
 import { CANVAS, KINDS } from "../core/brand.mjs";
 import { deliverability, parseQaStrict, BLOCKING_FLAGS } from "../core/gates.mjs";
@@ -173,7 +173,15 @@ export class Pipeline {
     this.pending.add(id);
     const p = this.queue.then(async () => {
       this.active = id;
-      try { await fn(); } finally { this.active = null; this.pending.delete(id); }
+      try { await fn(); }
+      catch (e) {
+        const r = this.store.getRun(id);
+        if (r) {
+          r.status = "failed"; r.error = { code: e.code || "error", message: e.message };
+          this.log(r, "Stopped — " + e.message, "err"); this.save(r);
+        }
+        throw e;
+      } finally { this.active = null; this.pending.delete(id); }
     });
     this.queue = p.catch(() => {});
     return p;
@@ -582,7 +590,8 @@ export class Pipeline {
       await this.stepCompose(run, run.items.filter((x) => !x.file && x.state !== "failed"));
       await this.stepDrive(run, run.items.filter((x) => x.file && !x.drive));
       run.status = run.items.some((x) => x.state === "failed") ? "partial" : "done";
-      this.log(run, run.status === "done" ? "Set finished." : "Set finished with a size missing.", run.status === "done" ? "ok" : "err");
+      const ready = run.items.every((x) => this.gate(x).deliverable);
+      this.log(run, run.status !== "done" ? "Set finished with a size missing." : ready ? "Set finished — ready to use." : "Files composed — held for review. Check the reasons below.", ready ? "ok" : "err");
       this.obs.duration(Date.now() - run.ts); this.event("run_" + run.status, run, null);
     } catch (e) {
       const amb = e.code === "ambiguous";
@@ -650,7 +659,7 @@ export class Pipeline {
 
   async stepSceneFetch(run) {
     const X = run.scene;
-    if (X.file) return;
+    if (X.file) return this.stepScenePrepare(run);
     const dir = this.store.runDir(run.id), raw = path.join(dir, "scene-v" + X.version + ".img");
     await fetchRender(X.url, raw, { dataDir: this.cfg.dataDir });
     if (!sniffImage(fs.readFileSync(raw))) throw new PipelineError("scene_bad", "The scene photo Higgsfield returned isn't a readable image.");
@@ -658,13 +667,42 @@ export class Pipeline {
     await runPython(this.cfg.python, path.join(ROOT, "finishing", "thumb.py"), [raw, thumb, 1536], { timeoutMs: 60000 });
     X.file = path.basename(raw); X.preview = path.basename(thumb); X.state = "done";
     this.save(run);
+    return this.stepScenePrepare(run);
+  }
+
+  // Free recovery for provider letterboxing. QA and composition must inspect the
+  // same prepared pixels. Keep the paid original; never resubmit a render here.
+  async stepScenePrepare(run) {
+    const X = run.scene;
+    if (X.preparation && X.preparation.algo === 1) return false;
+    const original = X.originalFile || X.file;
+    const dir = this.store.runDir(run.id);
+    const prepared = path.join(dir, "scene-v" + X.version + "-prepared.png");
+    const tmp = prepared + ".tmp.png";
+    try {
+      const r = parseResult((await runPython(this.cfg.python, path.join(ROOT, "finishing", "scene.py"), [this.store.filePath(run.id, original), tmp], { timeoutMs: 60000 })).stdout);
+      if (!r || !r.ok) throw new PipelineError("scene_bad", "The scene photo couldn't be prepared.");
+      if (r.cropped) {
+        fs.renameSync(tmp, prepared);
+        const thumb = path.join(dir, "scene-v" + X.version + "-prepared-preview.jpg");
+        await runPython(this.cfg.python, path.join(ROOT, "finishing", "thumb.py"), [prepared, thumb, 1536], { timeoutMs: 60000 });
+        X.originalFile = original; X.file = path.basename(prepared); X.preview = path.basename(thumb);
+        X.qa = null;
+        // Any previous files/checks/overrides refer to the untrimmed scene.
+        for (const x of run.items) { x.file = null; x.output = null; x.drive = null; x.override = null; x.sceneQa = null; x.state = "waiting"; }
+        this.log(run, "Removed plain white margins from the existing scene photo (0 Higgsfield credits). Rechecking the cropped photo before delivery.", "ok");
+      }
+      X.preparation = r;
+      this.save(run);
+      return r.cropped;
+    } finally { try { fs.unlinkSync(tmp); } catch { /* none */ } }
   }
 
   // Vision check of the scene alone: no lettering, panels, faces or close-up devices. The ads' own
   // text, logo and product are set by the app, so they don't need a model to check them.
   async stepSceneQa(run) {
     const X = run.scene;
-    if (X.qa && X.qa.state !== "error" && X.qa.version === X.version) return;
+    if (X.qa && ["pass", "fail", "uncertain", "off"].includes(X.qa.state) && X.qa.version === X.version) return;
     if (!this.llm) { X.qa = { state: "off", version: X.version }; this.save(run); return; }
     this.log(run, "Checking the scene photo…");
     X.qa = { state: "running", version: X.version }; this.save(run);
@@ -832,10 +870,14 @@ export class Pipeline {
         if (!r.scene || !r.scene.file) return;
         r.status = "running"; this.save(r);
         await this.stepCutout(r);
+        await this.stepSceneFetch(r);
+        await this.stepSceneQa(r);
         for (const x of r.items) { x.file = null; if (x.state === "failed") x.state = "waiting"; }
         await this.stepCompose(r, r.items);
         await this.stepDrive(r, r.items.filter((x) => x.file));
         r.status = r.items.some((x) => x.state === "failed") ? "partial" : "done";
+        r.error = null;
+        this.log(r, r.items.every((x) => this.gate(x).deliverable) ? "Re-composed — ready to use." : "Re-composed — held for review. Check the reasons below.", r.items.every((x) => this.gate(x).deliverable) ? "ok" : "err");
         this.save(r);
         return;
       }
@@ -853,7 +895,11 @@ export class Pipeline {
     this.enqueue(id, async () => {
       const r = this.store.getRun(id);
       if (r.S.composed) {
-        if (r.scene && r.scene.file) { r.scene.qa = null; await this.stepSceneQa(r); }
+        if (r.scene && r.scene.file) {
+          await this.stepSceneFetch(r);
+          r.scene.qa = null; await this.stepSceneQa(r);
+          await this.stepCompose(r, r.items.filter((x) => !x.file));
+        }
         await this.stepDrive(r, r.items.filter((x) => x.file));
         return;
       }

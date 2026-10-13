@@ -108,6 +108,7 @@ ol.howto b{color:var(--text);font-family:var(--display);font-weight:700}
 #cost.low{color:var(--stop);font-weight:600}
 .qa{font-size:13.5px;line-height:1.5;color:var(--text-dim);background:var(--surface-2);border-left:3px solid var(--line-strong);padding:8px 11px;border-radius:0 4px 4px 0;margin-top:4px}
 .qa.pass{border-left-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.qa.review{border-left-color:var(--warn);color:var(--text);background:var(--warn-bg)}
 .qa.fail{border-left-color:var(--stop);color:var(--text);background:var(--stop-bg)}
 .qa.fail b{display:block;font-family:var(--display);margin-bottom:2px}
 .qa ul{margin:4px 0 0;padding-left:18px}

@@ -276,6 +276,75 @@ test("re-compose is free: same scene, no new render, files rebuilt", { skip: !HA
   assert.ok(r.items.every((x) => x.state === "done" && x.file));
 });
 
+test("existing rejected scene: repair padding, check the repaired pixels, and rebuild without submitting", { skip: !HAS_BROWSER && "no Chromium" }, async () => {
+  const llm = sceneLlm("pass"), drive = mockDrive();
+  const { pipeline, store, renderer } = setup({ llm, drive });
+  const run = pipeline.start(pipeline.create({ form: formT1(), picked: PICK, saveDrive: false }));
+  await settle(pipeline);
+  let r = store.getRun(run.id);
+  const oldFile = r.scene.file;
+  // Reproduce the production provider's square file with a tall photo and white margins.
+  execFileSync(PY, ["-c", `from PIL import Image, ImageDraw\nim=Image.new('RGB',(1000,1000),'white')\nImageDraw.Draw(im).rectangle((160,0,839,949),fill=(40,30,20))\nim.save(${JSON.stringify(store.filePath(r.id, oldFile))},'PNG')`]);
+  delete r.scene.preparation;
+  r.scene.qa = { state: "fail", version: 1, issues: ["White vertical borders"] };
+  r.items[0].override = { version: r.items[0].version, file: r.items[0].file };
+  store.saveRun(r);
+  pipeline.refinish(r.id);
+  await settle(pipeline);
+  r = store.getRun(run.id);
+  assert.equal(renderer.accepted.length, 1, "repair never submits another paid render");
+  assert.equal(r.credits, 2);
+  assert.equal(r.scene.originalFile, oldFile);
+  assert.ok(fs.existsSync(store.filePath(r.id, oldFile)), "original is preserved");
+  assert.deepEqual(r.scene.preparation.box, [160, 0, 840, 950]);
+  assert.equal(r.scene.qa.state, "pass");
+  assert.equal(llm.calls.length, 2, "cropping invalidates the old QA result");
+  assert.ok(r.items.every((x) => x.file && x.output.ok && !x.override && deliverability(x).deliverable));
+  pipeline.refinish(r.id);
+  await settle(pipeline);
+  assert.equal(llm.calls.length, 2, "unchanged repaired pixels reuse the check");
+  assert.equal(renderer.accepted.length, 1);
+});
+
+test("repair never clears a real scene defect or delivers after a failed recheck", { skip: !HAS_BROWSER && "no Chromium" }, async () => {
+  const drive = mockDrive();
+  const { pipeline, store, renderer } = setup({ llm: sceneLlm("fail", ["Lettering on the wall"]), drive });
+  const run = pipeline.start(pipeline.create({ form: formT1(), picked: PICK, saveDrive: true }));
+  await settle(pipeline);
+  pipeline.recheck(run.id);
+  await settle(pipeline);
+  const r = store.getRun(run.id);
+  assert.equal(r.scene.qa.state, "fail");
+  assert.equal(drive.uploads.length, 0);
+  assert.ok(r.items.every((x) => !deliverability(x).deliverable));
+  assert.equal(renderer.accepted.length, 1);
+});
+
+test("a scene check interrupted by restart is rerun rather than cached as running", async () => {
+  const llm = sceneLlm();
+  const { pipeline, store } = setup({ llm });
+  const r = pipeline.create({ form: formT1(), picked: PICK });
+  fs.mkdirSync(store.runDir(r.id), { recursive: true });
+  fs.writeFileSync(store.filePath(r.id, "scene-preview.png"), CUT_PNG);
+  r.scene.preview = "scene-preview.png";
+  r.scene.qa = { state: "running", version: r.scene.version };
+  await pipeline.stepSceneQa(r);
+  assert.equal(r.scene.qa.state, "pass");
+  assert.equal(llm.calls.length, 1);
+});
+
+test("a recovery operation that throws records a visible failure and releases its queue lock", async () => {
+  const { pipeline, store } = setup();
+  const r = pipeline.create({ form: formT1(), picked: PICK });
+  pipeline.enqueue(r.id, async () => { throw new Error("Scene preparation failed"); }).catch(() => {});
+  await settle(pipeline);
+  assert.equal(pipeline.busy(), null);
+  const saved = store.getRun(r.id);
+  assert.equal(saved.status, "failed");
+  assert.match(saved.error.message, /Scene preparation failed/);
+  assert.match(saved.log.at(-1).msg, /Scene preparation failed/);
+});
+
 test("an unapproved automatic cutout from an older method is redone; approved ones are kept", async () => {
   const dir = tmp(), cs = new CutoutStore(dir), src = path.join(dir, "p.png");
   fs.writeFileSync(src, CUT_PNG);

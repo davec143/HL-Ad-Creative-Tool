@@ -20,7 +20,7 @@ export function scenePrompt(form) {
     "",
     "[STRICT — the photograph must contain none of these]",
     "No text, letters, numbers, words, signage, labels, price tags or watermarks anywhere. No logos, wordmarks or brand names. No ® or ™.",
-    "No borders, frames, panels, buttons, badges, collage, split screens, overlays or graphic shapes: only the photograph.",
+    "Fill the entire image edge to edge with the photograph. No white margins, letterboxing or pillarboxing. No borders, frames, panels, buttons, badges, collage, split screens, overlays or graphic shapes: only the photograph.",
     "No close-up of any electrical device, switch, dimmer, driver, controller, power supply, remote, box or packaging, and no product labels — the product is added separately.",
     "No people's faces. No hands holding a product. No extra limbs or warped fingers, no melted geometry, no plastic look, no HDR halos, no cartoon rendering.",
     "",

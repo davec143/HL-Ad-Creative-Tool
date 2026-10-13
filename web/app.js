@@ -299,7 +299,8 @@ function scenePanel(r, working) {
   if (X.preparation && X.preparation.cropped) box.appendChild(el("div", "dim", "Plain white margins removed from the existing render. Original preserved; no extra Higgsfield credits."));
   const q = X.qa;
   if (q) {
-    const label = { pass: "Scene check: clean photo — no stray text, panels, faces or devices.", fail: "Scene check: needs repair or review.", uncertain: "Scene check: unsure — look at the photo yourself.", running: "Scene check: looking at the photo…", off: "Scene check: off (no language model configured) — look at the photo yourself.", error: "Scene check: couldn't run (" + (q.message || q.code || "error") + ")." }[q.state] || q.state;
+    if (q.scope === "visible_scene") box.appendChild(el("div", "dim", "Scene verdict checked against all three finished ads, including the template's crop, blur and real product."));
+    const label = q.state === "pass" && q.scope === "visible_scene" ? "Scene check: all three finished backgrounds passed." : { pass: "Scene check: clean photo — no stray text, panels, faces or devices.", fail: "Scene check: needs repair or review.", uncertain: "Scene check: unsure — look at the photo yourself.", running: "Scene check: looking at the photo…", off: "Scene check: off (no language model configured) — look at the photo yourself.", error: "Scene check: couldn't run (" + (q.message || q.code || "error") + ")." }[q.state] || q.state;
     const d = el("div", "qa " + (q.state === "pass" || q.approved ? "pass" : "fail")); d.appendChild(el("b", null, label));
     if (q.issues && q.issues.length) { const ul = el("ul"); q.issues.forEach((i) => ul.appendChild(el("li", null, i))); d.appendChild(ul); }
     if (q.approved) d.appendChild(el("div", "dim", "Approved by a person " + new Date(q.approved.at).toLocaleString()));

@@ -31,7 +31,7 @@ import { Obs } from "./obs.mjs";
 import crypto from "node:crypto";
 import { isComposed, layoutFor, SCENE_ASPECT } from "../composer/templates.mjs";
 import { ComposeError } from "../composer/render.mjs";
-import { scenePrompt, sceneParams, SCENE_SCHEMA, sceneCheckPrompt, parseSceneCheck } from "../core/scene.mjs";
+import { scenePrompt, sceneParams, SCENE_SCHEMA, sceneCheckPrompt, visibleSceneCheckPrompt, parseSceneCheck } from "../core/scene.mjs";
 import { CutoutStore, cutoutApproved, imageUri, composeToJpeg } from "./compose.mjs";
 import { runPython } from "./py.mjs";
 import { ROOT } from "./config.mjs";
@@ -588,6 +588,7 @@ export class Pipeline {
       await this.stepSceneFetch(run);
       await this.stepSceneQa(run);
       await this.stepCompose(run, run.items.filter((x) => !x.file && x.state !== "failed"));
+      await this.stepVisibleSceneQa(run);
       await this.stepDrive(run, run.items.filter((x) => x.file && !x.drive));
       run.status = run.items.some((x) => x.state === "failed") ? "partial" : "done";
       const ready = run.items.every((x) => this.gate(x).deliverable);
@@ -721,6 +722,30 @@ export class Pipeline {
     this.save(run);
   }
 
+  async stepVisibleSceneQa(run) {
+    const X = run.scene, q = X.qa;
+    if (!this.llm || !q || (q.approved && q.scope !== "visible_scene") || !run.items.every((x) => x.file && x.output && x.output.ok)) return;
+    if (!["fail", "uncertain"].includes(q.state) && q.scope !== "visible_scene") return;
+    const images = run.items.map((x) => fs.readFileSync(this.store.filePath(run.id, x.file)));
+    const outputHash = crypto.createHash("sha256").update(Buffer.concat(images)).digest("hex");
+    if (q.scope === "visible_scene" && q.outputHash === outputHash && q.state !== "error") return;
+    const sourceCheck = q.sourceCheck || { state: q.state, issues: q.issues || [], version: q.version };
+    this.log(run, "Checking whether the source-photo issue is visible in the three finished ads…");
+    X.qa = { state: "running", scope: "visible_scene", sourceCheck, version: X.version }; this.save(run);
+    try {
+      images.push(fs.readFileSync(this.store.filePath(run.id, run.S.source.file)));
+      const o = await this.llm.json({ prompt: visibleSceneCheckPrompt(run.form), images, schema: SCENE_SCHEMA, model: this.cfg.llmQaModel, effort: "medium" });
+      const p = parseSceneCheck(o);
+      if (!p.ok) throw Object.assign(new Error(p.error), { code: "bad_reply" });
+      X.qa = { state: p.verdict, issues: p.issues, scope: "visible_scene", sourceCheck, outputHash, version: X.version };
+      this.log(run, "  Finished-background check: " + p.verdict + (p.issues.length ? " — " + p.issues.join("; ") : " — no visible scene defects in any size."), p.verdict === "pass" ? "ok" : "err");
+    } catch (e) {
+      X.qa = { state: "error", code: e.code || "error", message: e.message, scope: "visible_scene", sourceCheck, version: X.version };
+      this.log(run, "  Finished-background check couldn't run: " + e.message, "err");
+    }
+    this.save(run);
+  }
+
   // Compose each size locally from the scene, the cutout and the copy. Free and repeatable.
   async stepCompose(run, list) {
     if (!list.length) return;
@@ -728,7 +753,7 @@ export class Pipeline {
     const product = imageUri(this.cutoutFile(run)), scene = imageUri(this.store.filePath(run.id, run.scene.file));
     for (const x of list) {
       const out = path.join(this.store.runDir(run.id), x.kind + "-v" + x.version + "-s" + run.scene.version + ".jpg");
-      x.state = "finishing"; this.save(run);
+      x.state = "finishing"; x.sceneQa = null; this.save(run);
       try {
         const { report, result } = await composeToJpeg(this.composer, layoutFor(run.S.tpl, x.kind, run.form), { scene, product }, { python: this.cfg.python, out });
         const v = validateOutput(out, x.W, x.H);
@@ -874,6 +899,7 @@ export class Pipeline {
         await this.stepSceneQa(r);
         for (const x of r.items) { x.file = null; if (x.state === "failed") x.state = "waiting"; }
         await this.stepCompose(r, r.items);
+        await this.stepVisibleSceneQa(r);
         await this.stepDrive(r, r.items.filter((x) => x.file));
         r.status = r.items.some((x) => x.state === "failed") ? "partial" : "done";
         r.error = null;
@@ -899,6 +925,7 @@ export class Pipeline {
           await this.stepSceneFetch(r);
           r.scene.qa = null; await this.stepSceneQa(r);
           await this.stepCompose(r, r.items.filter((x) => !x.file));
+          await this.stepVisibleSceneQa(r);
         }
         await this.stepDrive(r, r.items.filter((x) => x.file));
         return;

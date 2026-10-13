@@ -353,6 +353,56 @@ test("a recovery operation that throws records a visible failure and releases it
   assert.match(saved.log.at(-1).msg, /Scene preparation failed/);
 });
 
+test("a source detail hidden in the finished ads can pass only after checking all three actual outputs", { skip: !HAS_BROWSER && "no Chromium" }, async () => {
+  const calls = [];
+  let finalVerdict = "pass";
+  const llm = { name: "mock", json: async ({ prompt, images }) => {
+    const final = prompt.startsWith("Inspect the photographic background");
+    calls.push({ final, count: images.length });
+    return final ? { verdict: finalVerdict, issues: finalVerdict === "pass" ? [] : ["Visible background lettering in landscape"] } : { verdict: "fail", issues: ["A tiny jar label in the source photo"] };
+  } };
+  const drive = mockDrive(), { pipeline, store, renderer } = setup({ llm, drive });
+  const run = pipeline.start(pipeline.create({ form: formT1(), picked: PICK, saveDrive: true }));
+  await settle(pipeline);
+  const r = store.getRun(run.id);
+  assert.deepEqual(calls, [{ final: false, count: 1 }, { final: true, count: 4 }]);
+  assert.equal(r.scene.qa.scope, "visible_scene");
+  assert.equal(r.scene.qa.sourceCheck.state, "fail", "source evidence is retained");
+  assert.ok(r.items.every((x) => deliverability(x).deliverable));
+  assert.equal(drive.uploads.length, 3);
+  assert.equal(renderer.accepted.length, 1);
+  await pipeline.stepVisibleSceneQa(r);
+  assert.equal(calls.length, 2, "exact same output bytes reuse the verdict");
+  // A changed output must never inherit a pass recorded for other pixels.
+  fs.appendFileSync(store.filePath(r.id, r.items[0].file), Buffer.from("changed"));
+  r.scene.qa.state = "uncertain";
+  r.scene.qa.approved = { at: Date.now(), version: r.scene.version };
+  finalVerdict = "fail";
+  await pipeline.stepVisibleSceneQa(r);
+  pipeline.syncComposed(r);
+  assert.equal(calls.length, 3);
+  assert.equal(r.scene.qa.approved, undefined, "a changed output invalidates an old final-image approval too");
+  assert.ok(r.items.every((x) => !deliverability(x).deliverable));
+});
+
+test("final scene checks fail closed on visible defects, uncertainty and provider errors", async () => {
+  for (const verdict of ["fail", "uncertain", "error"]) {
+    const llm = { name: "mock", json: async () => { if (verdict === "error") throw new Error("model unavailable"); return { verdict, issues: ["Background lettering"] }; } };
+    const { pipeline, store } = setup({ llm });
+    const r = pipeline.create({ form: formT1(), picked: PICK });
+    fs.mkdirSync(store.runDir(r.id), { recursive: true });
+    fs.writeFileSync(store.filePath(r.id, "photo.png"), CUT_PNG);
+    r.S.source = { file: "photo.png" };
+    r.cutout = { state: "approved" };
+    r.scene.qa = { state: "fail", issues: ["Source lettering"], version: r.scene.version };
+    for (const x of r.items) Object.assign(x, { state: "done", file: "photo.png", output: { ok: true } });
+    await pipeline.stepVisibleSceneQa(r);
+    pipeline.syncComposed(r);
+    assert.equal(r.scene.qa.state, verdict);
+    assert.ok(r.items.every((x) => !deliverability(x).deliverable), verdict);
+  }
+});
+
 test("an unapproved automatic cutout from an older method is redone; approved ones are kept", async () => {
   const dir = tmp(), cs = new CutoutStore(dir), src = path.join(dir, "p.png");
   fs.writeFileSync(src, CUT_PNG);

@@ -7,6 +7,7 @@ import { isComposed, COMPOSED_SAMPLE_SCENE } from "/core/composed.mjs";
 const $ = (id) => document.getElementById(id);
 const logEl = $("log"), outEl = $("out");
 let status = null, picked = null, currentRun = null, pollTimer = null, lastTpl = "t1";
+let selectionVersion = 0, pollVersion = 0, previewVersion = 0, searchVersion = 0, statusVersion = 0, runsVersion = 0;
 // Composed templates: the server's list wins (COMPOSED_TEMPLATES can switch them off).
 const composedNow = (tpl) => (status && Array.isArray(status.composed) ? status.composed.includes(tpl) : isComposed(tpl));
 // Sample copy, with a space-and-light scene for composed templates.
@@ -30,11 +31,23 @@ function form() {
   for (const k of FORM_FIELDS) f[k] = $(k) ? $(k).value : "";
   return f;
 }
+// Async results belong to the product/copy and selected set that requested them. A late response
+// must never overwrite a newer edit or make buttons operate on a different set.
+function editorKey() { return JSON.stringify({ form: form(), picked }); }
+function invalidatePreview() {
+  previewVersion++;
+  const box = $("preview");
+  if (!box.hidden) { box.innerHTML = ""; box.appendChild(el("p", "hint", "The product or copy changed. Preview again to see the updated set.")); }
+  $("previewBtn").disabled = false; $("previewBtn").textContent = "Preview free (0 credits)";
+}
 function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* ignore */ } }
 function recall(k) { try { return localStorage.getItem(k); } catch { return null; } }
 
 // ---------- sign in ----------
-function showLogin() { $("login").hidden = false; $("app").hidden = true; }
+function showLogin() {
+  clearTimeout(pollTimer); pollVersion++; previewVersion++; searchVersion++; statusVersion++;
+  $("login").hidden = false; $("app").hidden = true;
+}
 $("pwgo").addEventListener("click", async () => {
   try { await api("/api/login", { method: "POST", body: { password: $("pw").value } }); $("login").hidden = true; boot(); }
   catch (e) { $("pwhint").textContent = e.message; }
@@ -85,11 +98,14 @@ const STOCK_LABEL = { in_stock: "In stock", out_of_stock: "Out of stock", unknow
 // Bind the selected variant: its id, SKU, price, stock and (if it has one) its own photo.
 function bindVariant(p, v) {
   if (!v) return;
+  // Keep the product's default photo separate from a previous variant's private photo.
+  if (p.defaultUrl === undefined) p.defaultUrl = p.images?.[0]?.url || p.url || "";
   Object.assign(p, { variantId: v.id, variantTitle: v.title, sku: v.sku, price: v.price, stock: v.stock, outOfStock: v.stock === "out_of_stock" && !v.oversell });
-  if (v.image && v.image.url) p.url = v.image.url;
+  p.url = v.image?.url || p.defaultUrl;
   p.label = p.title + (v.title && v.title !== "Default Title" ? " — " + v.title : "");
 }
 function setPicked(p) {
+  invalidatePreview();
   picked = p; const box = $("picked"); box.hidden = false; box.innerHTML = "";
   const b = el("b", null, "Using: "); box.appendChild(b); box.appendChild(document.createTextNode(p.label));
   if (p.variants && p.variants.length > 1) {
@@ -115,10 +131,12 @@ function setPicked(p) {
 }
 async function search() {
   const q = $("q").value.trim(); if (!q) return;
+  const version = ++searchVersion;
   const r = $("results"); r.innerHTML = "";
   logEl.textContent = "Searching the catalog for “" + q + "”…";
   try {
     const { products } = await api("/api/products?q=" + encodeURIComponent(q));
+    if (version !== searchVersion || q !== $("q").value.trim()) return;
     if (!products.length) { logEl.textContent = "No active products matched “" + q + "”."; return; }
     logEl.textContent = "Found " + products.length + " product" + (products.length === 1 ? "" : "s") + ".";
     products.forEach((n) => {
@@ -140,13 +158,14 @@ async function search() {
       });
       r.appendChild(btn);
     });
-  } catch (e) { if (e.code !== "login") { logEl.textContent = e.message; fail("Catalog search didn't work", e.message); } }
+  } catch (e) { if (version === searchVersion && q === $("q").value.trim() && e.code !== "login") { logEl.textContent = e.message; fail("Catalog search didn't work", e.message); } }
 }
 $("search").addEventListener("click", search);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
 function pickUrl() {
   const v = $("imgurl").value.trim(), nm = $("imgname").value.trim();
   if (/^https:\/\//i.test(v)) setPicked({ url: v, label: nm || v, title: nm, desc: "", outOfStock: false, stock: "unknown" });
+  else { picked = null; $("picked").hidden = true; invalidatePreview(); }
 }
 $("imgurl").addEventListener("change", pickUrl);
 $("imgname").addEventListener("change", () => { if (picked && picked.url === $("imgurl").value.trim()) pickUrl(); });
@@ -195,33 +214,42 @@ function showLimits() {
   return bad;
 }
 $("ground").addEventListener("change", () => { swapSamples(); applyTpl(); store("hl-tpl", $("ground").value); });
+for (const id of [...FORM_FIELDS, "ground"]) {
+  if ($(id)) for (const event of ["input", "change"]) $(id).addEventListener(event, invalidatePreview);
+}
 
 // ---------- draft ----------
 $("draft").addEventListener("click", async () => {
   const btn = $("draft"), hint = $("drafthint");
   if (!picked && !$("angle").value.trim()) { hint.textContent = "Pick a product first, or describe the angle here."; return; }
   btn.disabled = true; const was = btn.textContent; btn.textContent = "Writing…"; hint.textContent = "Reading the product and drafting…";
+  const requested = editorKey();
   try {
     const { form: f, violations = [] } = await api("/api/draft", { method: "POST", body: { form: form(), picked } });
+    if (requested !== editorKey()) { hint.textContent = "The product or copy changed while drafting. Your edits were kept; request a new draft when ready."; return; }
     for (const k of ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "scene"]) if ($(k) && f[k] !== undefined) $(k).value = f[k];
+    invalidatePreview();
     showLimits();
     hint.textContent = "Drafted from the product listing — read it over and edit anything that's off." +
       (violations.length ? " Kept out (not in the product data): " + violations.map((v) => v.field + ": " + v.reason).join("; ") + "." : "");
   } catch (e) { hint.textContent = e.code === "login" ? "" : "Couldn't draft it: " + e.message; }
-  btn.disabled = false; btn.textContent = was;
+  finally { btn.disabled = false; btn.textContent = was; }
 });
 
 // ---------- free preview (composed templates) ----------
 async function refreshPreview() {
   const box = $("preview"), btn = $("previewBtn");
+  const version = ++previewVersion, requested = editorKey();
   if (!picked || !picked.url) { box.hidden = false; box.innerHTML = ""; box.appendChild(el("p", "hint", "Pick a product first.")); return; }
   btn.disabled = true; btn.textContent = "Laying it out…";
   box.hidden = false; box.innerHTML = ""; box.appendChild(el("p", "hint", "Cutting the product out of its photo and laying out the three sizes (the first time for a product takes a few seconds)…"));
   try {
     const p = await api("/api/preview", { method: "POST", body: { form: form(), picked } });
+    if (version !== previewVersion) return;
+    if (requested !== editorKey()) { invalidatePreview(); return; }
     paintPreview(p);
-  } catch (e) { box.innerHTML = ""; if (e.code !== "login") box.appendChild(el("div", "err", "Preview didn't work: " + e.message)); }
-  btn.disabled = false; btn.textContent = "Preview free (0 credits)";
+  } catch (e) { if (version === previewVersion) { box.innerHTML = ""; if (e.code !== "login") box.appendChild(el("div", "err", "Preview didn't work: " + e.message)); } }
+  finally { if (version === previewVersion) { btn.disabled = false; btn.textContent = "Preview free (0 credits)"; } }
 }
 $("previewBtn").addEventListener("click", refreshPreview);
 function paintPreview(p) {
@@ -245,6 +273,7 @@ function paintPreview(p) {
 // ---------- product cutout: checked once per product photo ----------
 const CUTOUT_LABEL = { auto: "Product cutout: ready for your one-time review", approved: "Product cutout: approved", uploaded: "Product cutout: your own PNG", failed: "Product cutout: couldn't be made" };
 function cutoutPanel(c, run) {
+  const requested = editorKey();
   const box = el("div", "qa " + (c && (c.state === "approved" || c.state === "uploaded") ? "pass" : c && c.state === "auto" ? "review" : "fail"));
   if (!c) { box.textContent = "Product cutout: not made yet."; return box; }
   box.appendChild(el("b", null, CUTOUT_LABEL[c.state] || c.state));
@@ -268,7 +297,7 @@ function cutoutPanel(c, run) {
     const ok = el("button", "btn-quiet", "Approve cutout"); ok.type = "button";
     ok.onclick = async () => {
       if (!confirm("You compared the cutout with the product photo and it's the whole product, cleanly cut out?")) return;
-      try { const r = await api("/api/cutouts/" + c.sha + "/approve", { method: "POST", body: { confirm: true, revision: c.revision, runId: run ? run.id : undefined } }); if (r.run) { paintRun(r.run); poll(); } else { Object.assign(c, r.cutout); box.replaceWith(cutoutPanel(c, run)); } }
+      try { const r = await api("/api/cutouts/" + c.sha + "/approve", { method: "POST", body: { confirm: true, revision: c.revision, runId: run ? run.id : undefined } }); if (r.run) showRunUpdate(r.run, run.id); else if (requested === editorKey()) { Object.assign(c, r.cutout); box.replaceWith(cutoutPanel(c, run)); } }
       catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
     };
     row.appendChild(ok);
@@ -280,8 +309,11 @@ function cutoutPanel(c, run) {
     inp.onchange = async () => {
       const f = inp.files && inp.files[0]; if (!f) return;
       if (f.size > 12e6) { fail("That file is too big", "Use a PNG under 12 MB."); return; }
-      const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = rej; fr.readAsDataURL(f); });
-      try { const r = await api("/api/cutouts/" + c.sha + "/upload", { method: "POST", body: { png: b64, runId: run ? run.id : undefined } }); if (r.run) { paintRun(r.run); setBusy(true); poll(); } else { await refreshPreview(); } }
+      try {
+        const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = () => rej(new Error("The PNG could not be read. Choose the file again.")); fr.readAsDataURL(f); });
+        const r = await api("/api/cutouts/" + c.sha + "/upload", { method: "POST", body: { png: b64, runId: run ? run.id : undefined } });
+        if (r.run) showRunUpdate(r.run, run.id); else if (requested === editorKey()) await refreshPreview();
+      }
       catch (e) { if (e.code !== "login") fail("That PNG couldn't be used", e.message); }
     };
     row.append(up, inp);
@@ -310,12 +342,12 @@ function scenePanel(r, working) {
       const b = el("button", "linkbtn", "I looked — the photo is clean"); b.type = "button";
       b.onclick = async () => {
         if (!confirm("No text, logos, panels, faces or close-up devices anywhere in the scene photo?")) return;
-        try { const { run } = await api("/api/runs/" + r.id + "/scene/approve", { method: "POST", body: { confirm: true } }); paintRun(run); poll(); }
+        try { const { run } = await api("/api/runs/" + r.id + "/scene/approve", { method: "POST", body: { confirm: true } }); showRunUpdate(run, r.id); }
         catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
       };
       d.appendChild(b);
     } else if (["fail", "error"].includes(q.state) && !working) {
-      const b = el("button", "linkbtn", "Repair margins and recheck (0 Higgsfield credits)"); b.type = "button"; b.onclick = () => act("recheck"); d.appendChild(b);
+      const b = el("button", "linkbtn", "Repair margins and recheck (0 Higgsfield credits)"); b.type = "button"; b.onclick = () => act("recheck", {}, r.id); d.appendChild(b);
     }
     box.appendChild(d);
   }
@@ -333,35 +365,51 @@ $("go").addEventListener("click", async () => {
   const bad = validateForGenerate(f, { hasImage: !!(picked && picked.url) });
   if (bad.length) { fail(bad[0].title, bad[0].body); return; }
   if (status && status.renderer.needsAuth) { fail("Connect Higgsfield first", "Use the sign-in button at the top of the page."); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  const selection = selectionVersion;
   setBusy(true);
   try {
     const { run } = await api("/api/runs", { method: "POST", body: { form: f, picked, saveDrive: $("saveDrive").checked } });
-    openRun(run.id, run);
-  } catch (e) { setBusy(false); if (e.code !== "login") fail("Couldn't start the set", e.message); }
+    if (selection === selectionVersion) openRun(run.id, run);
+    else loadRuns();
+  } catch (e) { if (selection === selectionVersion) { setBusy(false); if (e.code !== "login") fail("Couldn't start the set", e.message); } }
 });
 
 // ---------- output ----------
 function openRun(id, run) {
+  clearTimeout(pollTimer); pollVersion++; selectionVersion++;
   currentRun = id; store("hl-run", id);
   if (run) paintRun(run);
+  else {
+    logEl.textContent = "Loading this set…";
+    for (const key of ["runbtns", "side", "drive"]) { $(key).innerHTML = ""; $(key).hidden = true; }
+    outEl.querySelectorAll(".outcard, .composedpanel, .err").forEach(c => c.remove());
+  }
+  setBusy(true);
   poll();
 }
 async function poll() {
   clearTimeout(pollTimer);
   if (!currentRun) return;
+  const id = currentRun, version = ++pollVersion;
   try {
-    const { run, busy } = await api("/api/runs/" + currentRun);
+    const { run, busy } = await api("/api/runs/" + id);
+    if (currentRun !== id || version !== pollVersion) return;
     paintRun(run, busy);
     const live = ["queued", "running"].includes(run.status) || busy === run.id;
     setBusy(!!busy);
     if (live || busy) pollTimer = setTimeout(poll, 2500);
-    else { loadRuns(); refreshStatus(); }
-  } catch (e) { if (e.status === 404) { store("hl-run", null); currentRun = null; } else pollTimer = setTimeout(poll, 5000); }
+    else { loadRuns(); refreshStatus().catch(() => {}); }
+  } catch (e) {
+    if (currentRun !== id || version !== pollVersion) return;
+    if (e.status === 404) { store("hl-run", null); currentRun = null; setBusy(false); logEl.textContent = "This set is no longer available. Choose another set below."; }
+    else if (e.code !== "login") pollTimer = setTimeout(poll, 5000);
+  }
 }
-async function act(action, body = {}) {
-  try { const { run } = await api("/api/runs/" + currentRun + "/" + action, { method: "POST", body }); if (run.id !== currentRun) currentRun = run.id; store("hl-run", currentRun); setBusy(true); poll(); }
-  catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
+async function act(action, body = {}, id = currentRun) {
+  try { const { run } = await api("/api/runs/" + id + "/" + action, { method: "POST", body }); showRunUpdate(run, id); }
+  catch (e) { if (currentRun === id && e.code !== "login") fail("That didn't work", e.message); }
 }
+function showRunUpdate(run, requestedId) { if (currentRun === requestedId) openRun(run.id, run); }
 function paintRun(r, busy) {
   logEl.innerHTML = "";
   for (const l of r.log) { const s = el("span", "s-" + (l.cls || "run"), l.msg + "\n"); logEl.appendChild(s); }
@@ -369,14 +417,14 @@ function paintRun(r, busy) {
   // run-level buttons
   const rb = $("runbtns"); rb.innerHTML = ""; rb.hidden = false;
   const working = ["queued", "running"].includes(r.status) || busy === r.id;
-  if (!working && (r.status === "failed" || r.status === "partial") && !r.attempts.some((a) => a.state === "ambiguous")) { const b = el("button", "btn-quiet regen", "Resume this set"); b.type = "button"; b.onclick = () => act("resume"); rb.appendChild(b); }
+  if (!working && (r.status === "failed" || r.status === "partial") && !r.attempts.some((a) => a.state === "ambiguous")) { const b = el("button", "btn-quiet regen", "Resume this set"); b.type = "button"; b.onclick = () => act("resume", {}, r.id); rb.appendChild(b); }
   if (r.items.some((x) => x.file)) { const a = el("a", "btn-quiet", "Download all (.zip)"); a.href = "/api/runs/" + r.id + "/zip"; a.style.textDecoration = "none"; rb.appendChild(a); }
-  if (!working && !r.composed && r.items.some((x) => x.rawUrl)) { const b = el("button", "btn-quiet regen", "Finish these renders again (0 credits)"); b.type = "button"; b.onclick = () => act("refinish"); rb.appendChild(b); }
-  if (!working && r.composed && r.scene && r.scene.preview) { const b = el("button", "btn-quiet regen", "Re-compose (0 credits)"); b.type = "button"; b.onclick = () => act("refinish"); rb.appendChild(b); }
+  if (!working && !r.composed && r.items.some((x) => x.rawUrl)) { const b = el("button", "btn-quiet regen", "Finish these renders again (0 credits)"); b.type = "button"; b.onclick = () => act("refinish", {}, r.id); rb.appendChild(b); }
+  if (!working && r.composed && r.scene && r.scene.preview) { const b = el("button", "btn-quiet regen", "Re-compose (0 credits)"); b.type = "button"; b.onclick = () => act("refinish", {}, r.id); rb.appendChild(b); }
   if (!working && r.composed && r.scene && (r.scene.preview || r.scene.state === "failed")) {
     const per = status ? status.creditsPerRender : 2;
     const b = el("button", "btn-quiet regen", "New scene — a new set (" + per + " credits)"); b.type = "button";
-    b.onclick = () => { if (confirm("Render a new scene photo as a new set (about " + per + " credits)? The copy and product stay the same.")) act("regenerate", { kind: "master" }); };
+    b.onclick = () => { if (confirm("Render a new scene photo as a new set (about " + per + " credits)? The copy and product stay the same.")) act("regenerate", { kind: "master" }, r.id); };
     rb.appendChild(b);
   }
   const cd = r.creditsDetail;
@@ -396,7 +444,7 @@ function paintRun(r, busy) {
   }
   for (const x of r.items) outEl.appendChild(card(r, x, working));
   // drive
-  const dv = $("drive"); dv.innerHTML = "";
+  const dv = $("drive"); dv.innerHTML = ""; dv.hidden = false;
   if (r.folderUrl || r.driveError) {
     const c = el("div", "outcard"); c.appendChild(el("b", null, "Google Drive"));
     if (r.driveError) c.appendChild(el("span", "dim", "Not saved: " + r.driveError));
@@ -430,7 +478,7 @@ function card(r, x, working) {
       q.classList.add("fail"); q.appendChild(el("b", null, "Text & logo check: failed"));
       const ul = el("ul"); (x.qa.issues.length ? x.qa.issues : ["Marked as failing without detail — look it over."]).forEach((i) => ul.appendChild(el("li", null, i))); q.appendChild(ul);
     } else if (x.qa.state === "off") q.textContent = "Text & logo check: off (no language model configured) — read the image over yourself.";
-    else { q.textContent = "Text & logo check: couldn't run (" + (x.qa.message || x.qa.code || "error") + "). "; const rb = el("button", "linkbtn", "Run it again"); rb.type = "button"; rb.onclick = () => act("recheck", { kind: x.kind }); q.appendChild(rb); }
+    else { q.textContent = "Text & logo check: couldn't run (" + (x.qa.message || x.qa.code || "error") + "). "; const rb = el("button", "linkbtn", "Run it again"); rb.type = "button"; rb.onclick = () => act("recheck", { kind: x.kind }, r.id); q.appendChild(rb); }
     c.appendChild(q);
     if (x.fidelity) c.appendChild(fidelityBox(r, x, working));
     c.appendChild(deliveryBox(r, x, working));
@@ -441,7 +489,7 @@ function card(r, x, working) {
   if ((x.state === "done" || x.state === "failed") && r.masterReady && !working) {
     const per = status ? status.creditsPerRender : 2;
     const rg = el("button", "btn-quiet regen", x.kind === "master" ? "Regenerate the whole set (" + 3 * per + " credits)" : "Regenerate this size (" + per + " credits)");
-    rg.type = "button"; rg.onclick = () => { if (confirm(x.kind === "master" ? "Render a new set of three (" + 3 * per + " credits)?" : "Re-render this size (" + per + " credits)?")) act("regenerate", { kind: x.kind }); };
+    rg.type = "button"; rg.onclick = () => { if (confirm(x.kind === "master" ? "Render a new set of three (" + 3 * per + " credits)?" : "Re-render this size (" + per + " credits)?")) act("regenerate", { kind: x.kind }, r.id); };
     row.appendChild(rg);
   }
   if (x.rawUrl) { const a = el("a", "hint", "raw render ↗"); a.href = x.rawUrl; a.target = "_blank"; a.rel = "noopener noreferrer"; row.appendChild(a); }
@@ -463,7 +511,7 @@ function deliveryBox(r, x, working) {
       const reason = prompt("Why is the " + x.dims + " OK to use as it is? This is recorded with the set.");
       if (!reason || reason.trim().length < 3) return;
       if (!confirm("Mark the " + x.dims + " as approved despite: " + d.reasons.join(" ") + "?")) return;
-      try { const { run } = await api("/api/runs/" + r.id + "/items/" + x.kind + "/override", { method: "POST", body: { reason, confirm: true } }); paintRun(run); poll(); }
+      try { const { run } = await api("/api/runs/" + r.id + "/items/" + x.kind + "/override", { method: "POST", body: { reason, confirm: true } }); showRunUpdate(run, r.id); }
       catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
     };
     box.appendChild(b);
@@ -484,7 +532,7 @@ function fidelityBox(r, x, working) {
     const b = el("button", "linkbtn", " I compared it — the product matches"); b.type = "button";
     b.onclick = async () => {
       if (!confirm("You compared the " + x.dims + " with the product photo and the hardware matches (connectors, shape, colour, markings)?")) return;
-      try { const { run } = await api("/api/runs/" + r.id + "/items/" + x.kind + "/approve-fidelity", { method: "POST", body: { confirm: true } }); paintRun(run); poll(); }
+      try { const { run } = await api("/api/runs/" + r.id + "/items/" + x.kind + "/approve-fidelity", { method: "POST", body: { confirm: true } }); showRunUpdate(run, r.id); }
       catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
     };
     q.appendChild(b);
@@ -499,7 +547,7 @@ function decisionPanel(r, x, working) {
   box.appendChild(el("p", null, (x.error || "The request may or may not have reached Higgsfield.") + " Its credits stay reserved until you decide."));
   const row = el("div", "rowbtn"), out = el("div");
   const resolve = async (body) => {
-    try { const { run } = await api("/api/runs/" + r.id + "/attempts/" + x.attemptId + "/resolve", { method: "POST", body }); paintRun(run); poll(); }
+    try { const { run } = await api("/api/runs/" + r.id + "/attempts/" + x.attemptId + "/resolve", { method: "POST", body }); showRunUpdate(run, r.id); }
     catch (e) { if (e.code !== "login") fail("That didn't work", e.message); }
   };
   const look = el("button", "btn-quiet", "Look for the job in Higgsfield"); look.type = "button"; look.disabled = working;
@@ -535,8 +583,10 @@ function decisionPanel(r, x, working) {
 
 // ---------- recent sets ----------
 async function loadRuns() {
+  const version = ++runsVersion;
   try {
     const { runs } = await api("/api/runs");
+    if (version !== runsVersion) return;
     const box = $("runs"); $("runsCard").hidden = false; box.innerHTML = "";
     if (!runs.length) { box.appendChild(el("p", "hint", "No sets yet. Each set you generate is listed here with its checks and Drive link.")); return; }
     const t = el("table", "runs"), h = el("tr");
@@ -579,7 +629,10 @@ $("logout").addEventListener("click", async () => { try { await api("/api/logout
 
 // ---------- boot ----------
 async function refreshStatus() {
-  status = await api("/api/status");
+  const version = ++statusVersion;
+  const next = await api("/api/status");
+  if (version !== statusVersion) return;
+  status = next;
   showGate(); showCost();
   if ($("ground").value) applyTpl();
   $("draftbox").hidden = !status.llm;

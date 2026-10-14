@@ -1,5 +1,9 @@
 # HitLights Ad Builder — handoff (Oct 3, 2026)
 
+> Historical handoff. The October 13 reliability work supersedes the cutout/deployment status
+> below; see [RELIABILITY.md](RELIABILITY.md) and the current README. Keep the original notes as
+> history, not as the current release checklist.
+
 This is the full state of the project at the end of the cloud Claude Code session, for continuing
 locally. Read it top to bottom once. `CLAUDE.md` (repo root) is the short version that Claude Code
 loads automatically. The full conversation is kept outside the repo, because the repo is

@@ -6,6 +6,11 @@ A standalone web app that turns one Shopify product (an exact variant) and a sho
 - **Image pipeline:** implemented and covered by automated tests. The COB promotion set was verified live with Shopify, the existing Higgsfield scene, scene checks and Drive on October 13, 2026. Cutout recovery is also checked against the EZDim and Luma product photos; this does not guarantee segmentation accuracy for every new photo.
 - **Video:** planned only (`VIDEO_PLAN.md`).
 
+The October 13 reliability pass adds regression coverage for concurrent submissions, browser
+responses arriving out of order, product-variant photo selection, interrupted Drive updates,
+restart recovery, bounded image downloads, and smaller/off-white studio product photos. See
+[`docs/RELIABILITY.md`](docs/RELIABILITY.md) for the tested scope and repeatable checks.
+
 ## How a set is made
 
 ### All five templates: composed (the image model never draws the ad)

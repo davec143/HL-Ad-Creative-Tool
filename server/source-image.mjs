@@ -6,6 +6,7 @@ import net from "node:net";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { checkImageUrl } from "./security.mjs";
+import { readBounded } from "./download.mjs";
 
 const MAX = 15 * 1024 * 1024;
 
@@ -34,14 +35,11 @@ export async function fetchSourceImage(url, dest, { fetchImpl = fetch, lookup = 
     const u = new URL(chk.url);
     await assertPublicHost(u.hostname, lookup);
     const res = await fetchImpl(u, { redirect: "manual", signal: AbortSignal.timeout(30000) });
-    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) { current = new URL(res.headers.get("location"), u).toString(); continue; }
-    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) { await res.body?.cancel?.().catch(() => {}); current = new URL(res.headers.get("location"), u).toString(); continue; }
+    if (!res.ok) { await res.body?.cancel?.().catch(() => {}); throw new Error("HTTP " + res.status); }
     const ct = String(res.headers.get("content-type") || "");
-    if (!/^image\//i.test(ct)) throw new Error("not an image (" + ct.slice(0, 40) + ")");
-    const len = Number(res.headers.get("content-length") || 0);
-    if (len > MAX) throw new Error("image is larger than 15 MB");
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX) throw new Error("image is larger than 15 MB");
+    if (!/^image\//i.test(ct)) { await res.body?.cancel?.().catch(() => {}); throw new Error("not an image (" + ct.slice(0, 40) + ")"); }
+    const buf = await readBounded(res, MAX, "image");
     fs.writeFileSync(dest, buf);
     return { file: dest, sha256: crypto.createHash("sha256").update(buf).digest("hex"), bytes: buf.length, contentType: ct.split(";")[0] };
   }

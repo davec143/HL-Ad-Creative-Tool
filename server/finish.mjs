@@ -5,8 +5,10 @@ import path from "node:path";
 import { ROOT } from "./config.mjs";
 import { runPython } from "./py.mjs";
 import { finishSpec } from "../core/engine.mjs";
+import { readBounded } from "./download.mjs";
 
 const PROCESS = path.join(ROOT, "finishing", "process.py");
+const MAX_RENDER_BYTES = 64 * 1024 * 1024;
 
 // Download a render to a local file. Only https (Higgsfield CDN) and, for the fake renderer,
 // file:// paths inside DATA_DIR are accepted.
@@ -21,10 +23,10 @@ export async function fetchRender(url, dest, { dataDir, fetchImpl = fetch, timeo
   for (let i = 0; i < 3; i++) {
     try {
       const res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
-      if (!res.ok) throw new Error("download failed: HTTP " + res.status);
-      fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+      if (!res.ok) { await res.body?.cancel?.().catch(() => {}); throw new Error("download failed: HTTP " + res.status); }
+      fs.writeFileSync(dest, await readBounded(res, MAX_RENDER_BYTES, "render"));
       return dest;
-    } catch (e) { last = e; await new Promise((r) => setTimeout(r, 1500 * (i + 1))); }
+    } catch (e) { last = e; if (e.code === "download_too_large") break; if (i < 2) await new Promise((r) => setTimeout(r, 1500 * (i + 1))); }
   }
   throw new Error("Couldn't download the render: " + (last && last.message));
 }

@@ -316,7 +316,11 @@ export function pageScript(rules) {
     const s = Math.min(pb.w / p.naturalWidth, pb.h / p.naturalHeight), w = p.naturalWidth * s, h = p.naturalHeight * s;
     rects.product = { x: pb.x + (pb.w - w) / 2, y: pb.y + pb.h - h, w, h };
   }
-  if ($("photo") && $("photo").tagName === "IMG" && !$("photo").naturalWidth) errors.push({ code: "SCENE", message: "The scene photo didn't load." });
+  // T3 names its background image "card"; every scene image must decode before a file can pass.
+  for (const id of ids("image").filter((id) => id !== "product")) {
+    const scene = $(id);
+    if (scene.tagName === "IMG" && !scene.naturalWidth) errors.push({ code: "SCENE", field: id, message: "The scene photo didn't load." });
+  }
   // Fonts: every weight in use must be the bundled Montserrat, not a fallback.
   for (const w of rules.weights) if (!document.fonts.check(w + ' 20px "HLMontserrat"')) errors.push({ code: "FONT", message: "Montserrat " + w + " didn't load." });
   // Overlap rules. "ground" boxes are what text and the logo deliberately sit on (a full-bleed

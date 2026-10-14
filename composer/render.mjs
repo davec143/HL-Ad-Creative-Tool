@@ -31,7 +31,7 @@ export function textProblems(text) {
   check("h1", text.h1); check("h2", text.h2); check("cta", text.cta); check("contact", text.contact); check("seal", text.seal);
   check("sub", text.sub); check("deadline", text.deadline);
   text.proof.forEach((p, i) => check("p" + (i + 1), p));
-  if (!text.h1) out.push({ code: "MISSING", field: "h1", message: "Headline line 1 is empty." });
+  if (!text.h1 && !text.h2) out.push({ code: "MISSING", field: "h1", message: "At least one headline line is needed." });
   if (!text.cta) out.push({ code: "MISSING", field: "cta", message: "The button text is empty." });
   return out;
 }
@@ -61,6 +61,7 @@ export class Composer {
   compose(spec, images, { screenshot = true, allowInvalid = false, type = "png", quality } = {}) {
     const run = async () => {
       const pre = textProblems(spec.text);
+      if (spec.tpl === "t3" && (!spec.text.h1 || !spec.text.deadline)) pre.push({ code: "MISSING", field: spec.text.h1 ? "deadline" : "h1", message: "The discount template needs an offer and deadline." });
       if (pre.length) throw new ComposeError("layout", pre.map((e) => e.message).join(" "), pre);
       const browser = await this.ensure();
       const page = await browser.newPage({ viewport: { width: spec.W, height: spec.H }, deviceScaleFactor: 1 });

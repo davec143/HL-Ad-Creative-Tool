@@ -36,6 +36,7 @@ const px = (n) => n + "px";
 
 // spec: layoutFor(...) result. scene/product: data URIs (scene null = labelled placeholder).
 export function buildHtml(spec, images) {
+  if (spec.L.photographic) return buildPhotographic(spec, images);
   const b = BUILDERS[spec.tpl];
   if (!b) throw new Error("No page builder for " + spec.tpl);
   return b(spec, images);
@@ -57,6 +58,57 @@ const sealCss = (L, colour) => `#seal{position:absolute;left:${px(L.seal.cx - L.
 function lastWordSpan(s, cls) {
   const t = String(s), i = t.trimEnd().lastIndexOf(" ");
   return i < 0 ? `<span class="${cls}">${escHtml(t)}</span>` : escHtml(t.slice(0, i + 1)) + `<span class="${cls}">${escHtml(t.slice(i + 1))}</span>`;
+}
+
+function buildPhotographic(spec, { scene, product }) {
+  const { W, H, L, logo, text: T, colours: K } = spec;
+  const full = L.mode === 'full', theme = L.theme || {}, dark = full || theme.dark;
+  const ink = dark ? '#fff' : K.ink, background = theme.background || (theme.dark ? K.field : K.cream);
+  const photo = L.photo, copy = L.copy;
+  const archW = (photo.w - 40) / 3;
+  const archClip = photo.arches ? `<svg width="0" height="0" aria-hidden="true"><defs><clipPath id="arches">${[0, 1, 2].map(i => `<rect x="${i * (archW + 20)}" y="0" width="${archW}" height="${photo.h}" rx="${archW / 2}"/>`).join('')}</clipPath></defs></svg>` : '';
+  const center = !!L.center;
+  const gap = spec.kind === 'landscape' || (spec.kind === 'portrait' && !full) ? 14 : 22;
+  const accent = theme.accent === 'violet' && !dark ? K.field : K.goldBright;
+  const scrim = spec.kind === 'portrait'
+    ? 'linear-gradient(90deg,rgba(16,12,22,.82),rgba(16,12,22,.54) 55%,rgba(16,12,22,.05) 88%)'
+    : 'linear-gradient(90deg,rgba(16,12,22,.88),rgba(16,12,22,.65) 38%,rgba(16,12,22,.08) 72%,transparent)';
+  return head(W, H, background) + `
+.photo{position:absolute;left:${px(photo.x)};top:${px(photo.y)};width:${px(photo.w)};height:${px(photo.h)};object-fit:cover;object-position:center;display:block;filter:none;border-radius:${px(photo.r || 0)};${photo.arches ? 'clip-path:url(#arches)' : ''}}
+#backdrop{position:absolute;${L.backdrop ? `left:${px(L.backdrop.x)};top:${px(L.backdrop.y)};width:${px(L.backdrop.w)};height:${px(L.backdrop.h)};background:${theme.warm ? 'rgba(40,25,18,.56)' : 'rgba(12,14,18,.65)'};border-radius:22px` : ''}}
+#pattern{position:absolute;inset:0;background:radial-gradient(ellipse at 80% 90%,rgba(91,30,195,.65),transparent 65%),radial-gradient(ellipse at 10% 75%,rgba(62,20,130,.65),transparent 65%)}
+#pattern:after{content:"";position:absolute;inset:34% -20% -25%;background-image:radial-gradient(circle,rgba(133,99,207,.38) 1.7px,transparent 2px);background-size:15px 15px;transform:rotate(-12deg);mask-image:linear-gradient(transparent,#000)}
+#scrim{position:absolute;inset:0;background:${scrim};pointer-events:none}
+#accent{position:absolute;left:${px(full ? 0 : photo.x)};top:${px(full ? 0 : photo.y)};width:${px(full ? 12 : spec.kind === 'portrait' ? W : 10)};height:${px(full ? H : spec.kind === 'portrait' ? 10 : H)};background:${K.gold}}
+#logo{position:absolute;left:${px(logo.x)};top:${px(logo.y)};width:${px(logo.w)};height:auto;display:block;${full ? 'filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))' : ''}}
+#copy{position:absolute;left:${px(copy.x)};top:${px(copy.y)};width:${px(copy.w)};display:flex;flex-direction:column;align-items:${center ? 'center' : 'flex-start'};text-align:${center ? 'center' : 'left'};color:${ink};${full ? 'text-shadow:0 2px 9px rgba(0,0,0,.45)' : ''}}
+#head{width:100%}
+#h1,#h2{font-weight:800;line-height:1.05;letter-spacing:-.015em}
+#h1{color:${spec.tpl === 't3' || theme.highlight ? accent : ink}}
+#h2{margin-top:.1em;${theme.bothGold ? `color:${accent}` : ''}}
+#sub{width:100%;margin-top:${px(gap)};font-weight:500;line-height:1.3}
+#proof{width:100%;list-style:none;margin-top:${px(gap)}}
+#proof li{display:flex;align-items:baseline;font-weight:600;line-height:1.2;margin-bottom:${px(L.proof.gap)}}
+#proof .dot{width:.3em;height:.3em;background:${dark ? K.goldBright : K.gold};border-radius:50%;margin-right:.5em;flex:0 0 auto;transform:translateY(-.1em)}
+#proof .t{min-width:0;flex:1}
+#deadline{margin-top:${px(gap)};font-weight:600;line-height:1.2;max-width:100%}
+#cta{height:${px(L.cta.h)};max-width:${px(L.cta.maxW)};margin-top:${px(gap)};padding:0 1.15em;border-radius:${px(spec.tpl === 't3' ? 12 : L.cta.h)};background:${K.gold};color:${K.ink};font-weight:800;white-space:nowrap;display:flex;align-items:center;justify-content:center;text-shadow:none;box-shadow:0 6px 16px rgba(0,0,0,.22);flex-shrink:0}
+#product{position:absolute;left:${px(L.product.x)};top:${px(L.product.y)};width:${px(L.product.w)};height:${px(L.product.h)};object-fit:contain;object-position:50% 100%;filter:drop-shadow(0 12px 15px rgba(0,0,0,.3))}
+#contact{position:absolute;left:${px(L.contact.x)};top:${px(L.contact.y)};max-width:${px(L.contact.maxW)};color:${ink};font-weight:500;white-space:nowrap;${center ? `width:${px(L.contact.maxW)};text-align:center;` : ''}${full ? 'text-shadow:0 1px 5px rgba(0,0,0,.75)' : ''}}
+</style></head><body data-scene-mode="${L.mode}" data-template="${spec.tpl}">
+${archClip}${L.mode === 'none' ? '<div id="pattern"></div>' : sceneTag(scene)}${full && !L.backdrop ? '<div id="scrim"></div>' : ''}${L.backdrop ? '<div id="backdrop"></div>' : ''}
+${theme.accentBar ? '<div id="accent"></div>' : ''}
+<img id="product" data-role="image" src="${product}" alt="">
+<img id="logo" src="${logoUri(logo.colour)}" alt="">
+<div id="copy" data-max-height="${copy.maxH}">
+<div id="head" data-role="text"><div id="h1" class="fit" ${fitAttr(L.head.h1, 2)}>${escHtml(T.h1)}</div>${T.h2 ? `<div id="h2" class="fit" ${fitAttr(L.head.h2, 2)}>${escHtml(T.h2)}</div>` : ''}</div>
+${T.sub ? `<div id="sub" data-role="text" class="fit" ${fitAttr(L.sub.size, L.sub.lines)}>${escHtml(T.sub)}</div>` : ''}
+${T.proof.length ? `<ul id="proof">${proofItems(T, L)}</ul>` : ''}
+${T.deadline ? `<div id="deadline" data-role="text" class="fit" ${fitAttr(L.deadline.size, 2)}>${escHtml(T.deadline)}</div>` : ''}
+<div id="cta" data-role="text" class="fit" ${fitAttr(L.cta.size, 1)}>${escHtml(T.cta)}</div>
+</div>
+${T.contact ? `<div id="contact" data-role="text" class="fit" ${fitAttr(L.contact.size, 1)}>${escHtml(T.contact)}</div>` : ''}
+</body></html>`;
 }
 
 function buildT4(spec, { scene, product }) {
@@ -297,6 +349,9 @@ export function pageScript(rules) {
     }
     sizes[el.id] = parseFloat(el.style.fontSize);
     if (!ok) errors.push({ code: "TEXT_FIT", field: el.id, message: (rules.names[el.id] || el.id) + " is too long for this size, even at the smallest allowed type." });
+  }
+  for (const el of document.querySelectorAll('[data-max-height]')) {
+    if (el.getBoundingClientRect().height > +el.dataset.maxHeight + .5) errors.push({ code: "TEXT_FIT", field: "head", message: "The text is too tall for this layout. Shorten the headline or supporting copy." });
   }
   // Lines that must share one size (T4's two headline lines): all take the smallest fitted size.
   const groups = {};

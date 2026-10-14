@@ -7,7 +7,7 @@ import { ROOT } from "./config.mjs";
 import { validateForGenerate, draftBrief, applyDraft, FORM_FIELDS } from "../core/engine.mjs";
 import { TPL } from "../core/brand.mjs";
 import { DRAFT_SCHEMA, sniffImage } from "./providers/llm.mjs";
-import { fileName, blockingFlags, PipelineError } from "./pipeline.mjs";
+import { fileName, blockingFlags, PipelineError, fingerprint } from "./pipeline.mjs";
 import { deliverability } from "../core/gates.mjs";
 import { guardDraft } from "../core/facts.mjs";
 import { Sessions, LoginLimiter, parseCookies, originOk, checkImageUrl, securityHeaders } from "./security.mjs";
@@ -49,24 +49,42 @@ export function publicRun(r, opts = {}) {
     try { runCutoutRevision = crypto.createHash("sha256").update(fs.readFileSync(opts.store.filePath(r.id, "cutout.png"))).digest("hex"); } catch { /* old run without a private cutout */ }
   }
   const cutoutStale = !!(c && c.revision && c.revision !== runCutoutRevision);
+  const totals = opts.store && opts.store.creditsForRun(r.id);
   return {
-    id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo,
+    id: r.id, ts: r.ts, status: r.status, error: r.error, log: r.log.slice(-200), setNo: r.setNo, batchId: r.batchId || null,
     product: r.S.product, tpl: r.S.tpl, tplName: r.S.tplName, folder: r.S.folder, folderUrl: r.folder ? r.folder.url : "",
     source: r.S.source ? { sku: r.S.source.sku, variantTitle: r.S.source.variantTitle, price: r.S.source.price, stock: r.S.source.stock, imageSource: r.S.source.imageSource, sha256: r.S.source.sha256 || null, kept: !!r.S.source.file, error: r.S.source.fetchError || null } : null,
-    composed: !!r.S.composed,
+    composed: !!r.S.composed, sceneRequired: r.S.sceneRequired !== false,
     scene: r.scene ? { state: r.scene.state, version: r.scene.version, error: r.scene.error, qa: r.scene.qa || null, preparation: r.scene.preparation || null, attemptId: r.scene.attemptId || null, preview: r.scene.preview ? `/api/runs/${r.id}/scene?v=${encodeURIComponent(r.scene.preview)}` : null } : null,
     cutout: c ? { sha: c.sha || null, state: c.state, error: c.error || null, revision: c.revision || null, stale: cutoutStale, image: c.sha && c.state !== "failed" ? `/api/cutouts/${c.sha}${c.revision ? "?v=" + c.revision : ""}` : null } : null,
     preflight: r.preflight || null,
-    driveError: r.driveError || null, saveDrive: r.saveDrive, credits: r.credits, creditsDetail: r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
+    driveError: r.driveError || null, saveDrive: r.saveDrive, credits: totals ? totals.committed : r.credits, creditsDetail: totals ? { ...totals, estimate: true } : r.creditsDetail || null, outOfStock: r.S.outOfStock, masterReady: !!r.masterJob,
     attempts: (r.attempts || []).map((a) => ({ id: a.id, kind: a.kind, version: a.version, purpose: a.purpose, state: a.state, jobId: a.jobId, error: a.error, submittedAt: a.submittedAt, resolution: a.resolution || null, retryOf: a.retryOf })),
     items: r.items.map((x) => ({
-      kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error, attemptId: x.attemptId || null, composed: !!x.composed,
+      kind: x.kind, dims: x.dims, title: x.title, version: x.version, state: x.state, error: x.error, attemptId: x.attemptId || null, composed: !!x.composed, sceneRequired: x.sceneRequired !== false,
       flags: x.flags, blocking: blockingFlags(x), mode: x.mode, at: x.at || null, grid: { x: x.logo.x, y: x.logo.y, where: x.logo.where },
       qa: x.qa, fidelity: x.fidelity || null, held: x.held, drive: x.drive, output: x.output || null,
       override: x.override ? { at: x.override.at, reason: x.override.reason, actor: x.override.actor, version: x.override.version } : null,
       delivery: cutoutStale && x.file ? { status: "held", deliverable: false, reasons: ["The product cutout changed. Re-compose this set to update every size before using it."] } : deliverability(x, { requireFidelity: !!opts.requireFidelity }), rawUrl: /^https:\/\/[^?#]+$/.test(x.url || "") ? x.url : null,
       file: x.file ? `/api/runs/${r.id}/files/${x.file}${x.output && x.output.sha256 ? "?v=" + x.output.sha256 : ""}` : null, fileName: fileName(x),
     })),
+  };
+}
+
+export function publicBatch(batch, { store, ...opts }) {
+  const runs = batch.runIds.map((id) => store.getRun(id)).filter(Boolean).map((r) => publicRun(r, { ...opts, store }));
+  const credits = store.creditsForBatch(batch.id);
+  return {
+    id: batch.id, ts: batch.ts, status: batch.status, count: batch.count, operation: batch.refresh ? "refresh_cutout" : "generate",
+    activeRunId: batch.activeRunId, cancelRequested: !!batch.cancelRequested,
+    scenePlans: batch.scenePlans, estimatedCredits: batch.estimatedCredits,
+    credits: credits.committed, creditsDetail: { ...credits, estimate: true },
+    completed: runs.filter((r) => r.status === "done").length,
+    failed: runs.filter((r) => ["failed", "partial", "needs_decision"].includes(r.status)).length,
+    held: runs.filter((r) => r.items.some((x) => x.file && !x.delivery.deliverable)).length,
+    readyFiles: runs.reduce((n, r) => n + r.items.filter((x) => x.file && x.delivery.deliverable).length, 0),
+    driveErrors: runs.filter((r) => r.driveError).length,
+    error: batch.error, runs,
   };
 }
 
@@ -98,7 +116,9 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   // The session for this request, or null. Without APP_PASSWORD (development only) everyone is "dev".
   function session(req) { return sessions ? sessions.verify(parseCookies(req.headers.cookie)[sessionName]) : { sid: "dev" }; }
   function cleanForm(f) {
-    f = f || {}; const out = { tpl: TPL[f.tpl] ? f.tpl : "t1" };
+    f = f || {};
+    if (f.sceneLayout != null && !["template", "full", "panel", ""].includes(f.sceneLayout)) throw new HttpError(400, "Choose a supported background layout.", "invalid");
+    const out = { tpl: TPL[f.tpl] ? f.tpl : "t1" };
     for (const k of FORM_FIELDS) out[k] = typeof f[k] === "string" ? f[k].slice(0, 600) : "";
     return out;
   }
@@ -116,7 +136,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   function pipelineHttp(e) {
     if (e.code === "stale_cutout") return new HttpError(409, e.message, e.code);
     if (!(e instanceof PipelineError)) return e;
-    const status = { already_queued: 409, ambiguous: 409, busy: 409, shutting_down: 503, not_found: 404 }[e.code] || 400;
+    const status = { already_queued: 409, ambiguous: 409, busy: 409, shutting_down: 503, not_found: 404, credit_cap: 429, credits: 402, batch_integrity: 409 }[e.code] || 400;
     return new HttpError(status, e.message, e.code);
   }
   // Shared team password: the actor is the session, not a person (see the SSO ADR).
@@ -143,7 +163,9 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     }, { open: true }],
 
     ["GET", /^\/api\/status$/, async (req, res) => {
-      const st = await renderer.status();
+      let st;
+      try { st = await renderer.status(); }
+      catch { st = { connected: false, error: "The renderer status is temporarily unavailable. Free previews and graphic layouts still work." }; }
       let balance = null;
       if (st.connected) { try { balance = await renderer.balance(); } catch { balance = null; } }
       send(res, 200, {
@@ -179,6 +201,72 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       } catch (e) { throw new HttpError(502, e.message, e.code); }
     }],
 
+    ["GET", /^\/api\/batches$/, async (req, res) => {
+      send(res, 200, { batches: store.listBatches(12).map((b) => publicBatch(b, PR)) });
+    }],
+    ["POST", /^\/api\/batches$/, async (req, res) => {
+      const b = await body(req), form = cleanForm(b.form), picked = cleanPicked(b.picked), count = b.count;
+      if (!Number.isInteger(count) || count < 1 || count > 5) throw new HttpError(400, "Choose between 1 and 5 sets.", "invalid");
+      if (!pipeline.isComposed(form.tpl)) throw new HttpError(400, "Batch generation requires a composed template.", "invalid");
+      if (!pipeline.requiresScene(form) && count > 1) throw new HttpError(400, "This graphic template has no scene. Choose a full or panel photo background for multiple distinct sets.", "invalid");
+      if (b.picked && b.picked.url && !picked.url) throw new HttpError(400, picked.urlError, "bad_url");
+      const bad = validateForGenerate(form, { hasImage: !!picked.url });
+      if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
+      const requestId = b.requestId == null ? null : b.requestId;
+      if (requestId !== null && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(requestId))) throw new HttpError(400, "Invalid batch request ID.", "invalid");
+      const input = { form, picked, saveDrive: b.saveDrive !== false, count };
+      const requestFingerprint = fingerprint(input);
+      const previous = requestId && store.listBatches(Infinity).find((x) => x.requestId === requestId);
+      if (previous) {
+        if (previous.requestFingerprint !== requestFingerprint) throw new HttpError(409, "This request ID already belongs to a different batch.", "request_conflict");
+        return send(res, 200, { batch: publicBatch(previous, PR) });
+      }
+      if (startingRun || pipeline.busy()) throw new HttpError(409, "A set or batch is already running. Wait for it to finish.", "busy");
+      if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
+      startingRun = true;
+      try {
+        const need = pipeline.estimate(form, count);
+        if (pipeline.estimate(form) > cfg.maxCreditsPerRun || (need > 0 && store.creditsToday() + need > cfg.maxCreditsPerDay)) throw new HttpError(429, "This batch would pass the configured credit cap. Choose fewer sets or wait for the daily cap to reset.", "credit_cap");
+        if (need > 0) {
+          const st = await renderer.status();
+          if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first.", "needs_auth");
+          if (!st.connected) throw new HttpError(502, "Higgsfield isn't reachable right now.", "renderer_down");
+          let balance;
+          try { balance = await renderer.balance(); }
+          catch (e) { throw new HttpError(502, "Couldn't check the Higgsfield balance. No batch was started.", "balance_unavailable"); }
+          const reserved = store.reservedCredits();
+          if (typeof balance === "number" && balance < need + reserved) throw new HttpError(402, `This batch needs about ${need} Higgsfield credits, with ${reserved} reserved for other pending work, and the balance is ${balance}.`, "credits");
+        }
+        const batch = pipeline.createBatch({ ...input, requestId, requestFingerprint });
+        pipeline.startBatch(batch);
+        send(res, 201, { batch: publicBatch(batch, PR) });
+      } catch (e) { throw pipelineHttp(e); }
+      finally { startingRun = false; }
+    }],
+    ["GET", /^\/api\/batches\/([a-z0-9]+)$/, async (req, res, m) => {
+      const b = store.getBatch(m[1]);
+      if (!b) throw new HttpError(404, "No such batch.", "not_found");
+      send(res, 200, { batch: publicBatch(b, PR), busy: pipeline.busy() });
+    }],
+    ["POST", /^\/api\/batches\/([a-z0-9]+)\/(resume|cancel)$/, async (req, res, m) => {
+      await body(req);
+      try { const b = m[2] === "resume" ? pipeline.resumeBatch(m[1]) : pipeline.cancelBatch(m[1]); send(res, 202, { batch: publicBatch(b, PR) }); }
+      catch (e) { throw pipelineHttp(e); }
+    }],
+    ["GET", /^\/api\/batches\/([a-z0-9]+)\/zip$/, async (req, res, m) => {
+      const b = store.getBatch(m[1]);
+      if (!b) throw new HttpError(404, "No such batch.", "not_found");
+      const files = [];
+      for (const id of b.runIds) {
+        const r = store.getRun(id); if (!r) continue;
+        const ready = publicRun(r, PR).items.filter((x) => x.file && x.delivery.deliverable).map((x) => x.kind);
+        for (const x of r.items.filter((x) => x.file && ready.includes(x.kind))) files.push({ name: "Set-" + String(r.setNo).padStart(2, "0") + "/" + fileName(x), data: fs.readFileSync(store.filePath(r.id, x.file)) });
+      }
+      if (!files.length) throw new HttpError(404, "No approved, ready-to-use files yet.");
+      res.writeHead(200, { "Content-Type": "application/zip", "Cache-Control": "no-store", "Content-Disposition": `attachment; filename="HitLights-batch-${b.id}.zip"` });
+      res.end(zip(files));
+    }],
+
     ["GET", /^\/api\/runs$/, async (req, res) => {
       send(res, 200, { runs: store.listRuns(12).map((r) => { const p = publicRun(r, PR); delete p.log; return p; }) });
     }],
@@ -192,13 +280,16 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
       startingRun = true;
       try {
-        const need = (pipeline.isComposed(form.tpl) ? 1 : 3) * cfg.creditsPerRender;
-        const st = await renderer.status();
-        if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first (see the banner at the top).", "needs_auth");
-        if (!st.connected) throw new HttpError(502, "Higgsfield isn't reachable right now. " + (st.error || ""), "renderer_down");
-        let bal = null; try { bal = await renderer.balance(); } catch { bal = null; }
-        if (bal != null && bal < need) throw new HttpError(402, `A set needs ${need} Higgsfield credits and the balance is ${bal}. Top up Higgsfield, then generate again.`, "credits");
-        if (store.creditsToday() + need > cfg.maxCreditsPerDay) throw new HttpError(429, `Today's credit cap (${cfg.maxCreditsPerDay}) would be passed. It resets at midnight UTC.`, "credit_cap");
+        const need = pipeline.estimate(form);
+        if (need > 0) {
+          const st = await renderer.status();
+          if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first (see the banner at the top).", "needs_auth");
+          if (!st.connected) throw new HttpError(502, "Higgsfield isn't reachable right now. " + (st.error || ""), "renderer_down");
+          let bal = null; try { bal = await renderer.balance(); } catch { bal = null; }
+          const reserved = store.reservedCredits();
+          if (bal != null && bal < need + reserved) throw new HttpError(402, `A set needs ${need} Higgsfield credits, with ${reserved} reserved for other pending work, and the balance is ${bal}. Top up Higgsfield, then generate again.`, "credits");
+          if (store.creditsToday() + need > cfg.maxCreditsPerDay || need > cfg.maxCreditsPerRun) throw new HttpError(429, "This set would pass the configured credit cap.", "credit_cap");
+        }
         if (pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
         if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
         const run = pipeline.start(pipeline.create({ form, picked, saveDrive: b.saveDrive !== false }));

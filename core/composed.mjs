@@ -1,8 +1,16 @@
 // Which templates are built by the composer (composer/templates.mjs): the image model renders only
 // the scene photograph; the product photo, text, CTA and logo are set by the app. Shared by the
 // page, the engine and the server.
-export const COMPOSED_TEMPLATES = ["t1", "t2", "t3", "t4", "t5"];
+import { TPL } from "./brand.mjs";
+
+export const COMPOSED_TEMPLATES = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11"];
 export const isComposed = (tpl) => COMPOSED_TEMPLATES.includes(tpl);
+export const SCENE_LAYOUTS = ["template", "full", "panel"];
+export const normalizeSceneLayout = (value) => SCENE_LAYOUTS.includes(value) ? value : "template";
+export function resolveSceneLayout(tpl, value) {
+  const selected = normalizeSceneLayout(value);
+  return selected === "template" ? (TPL[tpl]?.sceneMode || (["t2", "t3", "t5"].includes(tpl) ? "full" : "panel")) : selected;
+}
 
 // "Write it for me": for composed templates the scene is the space and the light only.
 export const COMPOSED_SCENE_TXT = "scene — ONE sentence describing the space and the light only: the room, its surfaces and where the LED glow falls. No people, no hands, and no devices, switches, drivers, boxes or packaging — the product is added separately from its own photo. Do not mention text, logos, colours or layout.\n\n";
@@ -12,7 +20,9 @@ export const COMPOSED_SCENE_TXT = "scene — ONE sentence describing the space a
 export const COMPOSED_SAMPLE_SCENE = {
   t1: "A modern kitchen at dusk, warm LED strip light glowing evenly under the upper cabinets and washing across a pale stone backsplash.",
   t2: "A bright commercial fit-out in cool daylight, open ceiling grid and clean white walls, a tidy workbench in the foreground.",
-  t3: "A softly lit living room at dusk, warm LED shelf lighting glowing in the background, shallow depth of field.",
+  t3: "A living room at dusk with clearly visible shelving, warm LED shelf lighting and ceiling cove light illuminating the room's architectural details.",
   t5: "A high-end open-plan living room and kitchen at night, main lights off, warm LED cove lighting along the ceiling and under the cabinets.",
   t4: "A styled bedroom shelf at dusk, books and a ceramic vase glowing under warm LED strip light, a linen-covered bed softly out of focus.",
 };
+
+for (const id of ["t6", "t7", "t8", "t9", "t10", "t11"]) COMPOSED_SAMPLE_SCENE[id] = id === "t6" ? "" : (id === "t9" ? "A refined study with dark wood shelves, warm LED ceiling coves and clearly visible architectural details." : id === "t11" ? "A sunlit living room with linen furniture, natural textures and warm LED cove lighting." : "A welcoming modern living room with clearly visible warm LED cove and shelf lighting.");

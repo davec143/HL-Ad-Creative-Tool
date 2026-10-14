@@ -1,7 +1,8 @@
 // HitLights brand system, Logo Grid and template library for the Ad Builder.
 // Extracted verbatim from builder v16 (legacy/v16/source/b_script.js) by tools/extract-brand.cjs.
 // This file is now the source of truth. Any change here must keep tests/parity.test.mjs green
-// (or be added there as a documented deviation) and must match reference/HitLights_Ad_Templates.html.
+// (or be added there as a documented deviation). Original five families match
+// reference/HitLights_Ad_Templates.html; the six October 2026 additions are composed-only.
 
 export const BRAND = {
   "purpleDeep": "#523875",
@@ -503,3 +504,44 @@ export const ARFOR = {
   "landscape": "16:9"
 };
 
+
+// October 2026 reference families. References establish composition, never claims
+// or contact details: copy below is neutral and all visible words remain editable.
+const REFERENCE_FAMILIES = [
+  ['t6', 'Violet Collection', 'WK1 B2B Ad 5', 'trade', 'none', false, true, { dark: true, background: '#140823', pattern: true }, 'Violet halftone field with a large product hero; no scene photo.'],
+  ['t7', 'Room Triptych', 'WK1 B2C Ad 4', 'lifestyle', 'panel', false, true, { dark: true, background: '#241A30', arches: true }, 'A room photograph in three tall rounded windows on deep violet.'],
+  ['t8', 'Warm Room Story', 'WK1 B2C Ad 5', 'lifestyle', 'full', false, true, { warm: true }, 'Full room photograph with white copy and a clear view of the lighting.'],
+  ['t9', 'Project Proof', 'WK2 B2B Ad 3', 'trade', 'full', true, false, { dark: true, highlight: true, bothGold: true, copyPanel: true }, 'Full room photograph, gold headline and a concise proof list.'],
+  ['t10', 'Project Showcase', 'WK2 B2B Ad 4', 'trade', 'panel', true, false, { dark: true, background: '#3B3546', highlight: true, bothGold: true }, 'Large rounded room panel beside gold copy on slate violet.'],
+  ['t11', 'Everyday Glow', 'WK2 B2C Ad 3', 'lifestyle', 'full', false, true, { warm: true, highlight: true, bothGold: true, copyPanel: true }, 'Warm full room with a translucent copy panel and product detail.'],
+];
+for (const [id, name, referenceFamily, register, sceneMode, proofs, sub, theme, summary] of REFERENCE_FAMILIES) {
+  TPL_ORDER.push(id);
+  TPL[id] = {
+    name: `Template ${id.slice(1)} — ${name}`, referenceFamily, summary, sceneMode, theme,
+    pillar: register === 'trade' ? 'Pillar A · Pro-Trust' : 'Pillar C · Aesthetic Lifestyle', register,
+    system: `${summary} Montserrat typography. White lettering${theme.highlight ? ' with a gold headline' : ''}, gold #EBA800 CTA.`,
+    craft: register === 'trade' ? BRAND.craftTrade : BRAND.craftLife,
+    photo: 'A clearly visible architectural room with practical LED lighting; no people or product packaging.',
+    cta: BRAND.ctaPill, ctaNoun: 'pill', skeleton: 'Logo, two-line headline, supporting copy, gold CTA and supplied contact details; real product added separately.',
+    proof: proofs ? 'bullets' : 'none', sub, contact: true, seal: false, deadline: false,
+    master: summary, portrait: 'Reflow the same design vertically, keeping all copy and logo inside Stories safe zones. ' + summary,
+    landscape: 'Reflow the same design into a readable horizontal composition. ' + summary,
+    keep: summary, palette: 'HitLights violet, gold, white and natural room colours', avoidExtra: ', no invented claims, no invented contact details',
+    labels: { h1: `Headline line 1 — ${theme.highlight ? 'gold' : 'white'}`, h2: `Headline line 2 — ${theme.bothGold ? 'gold' : 'white'}` },
+  };
+  SAMPLE[id] = {
+    h1: register === 'trade' ? 'LIGHT YOUR' : 'MAKE ROOM', h2: register === 'trade' ? 'NEXT PROJECT' : 'FOR WARMTH',
+    sub: sub ? 'Explore lighting for the spaces you love.' : '',
+    p1: proofs ? 'Explore LED strip lights' : '', p2: proofs ? 'Plan your lighting layout' : '', p3: proofs ? 'Find your next project' : '',
+    cta: id === 't6' || id === 't11' ? 'VIEW COLLECTION' : 'SHOP NOW', deadline: '',
+    scene: 'A welcoming room with warm LED cove lighting, natural wood and clearly visible architectural details.',
+  };
+  LIMITS[id] = { h1: 24, h2: 24, hl: 40, p: 28, sub: 64, cta: 24, ctaWords: [2, 4] };
+  LOGOGRID[id] = { colour: 'white', shadow: sceneMode === 'full', ground: sceneMode === 'full' ? 'photo' : 'panel', even: false, a: 'tl', pos: { master: [64, 64], portrait: [64, 288], landscape: [56, 48] }, sits: summary };
+  FIELD[id] = theme.background ? theme.background.slice(1) : '-';
+}
+for (const id of ['t1', 't2', 't3', 't4', 't5']) {
+  TPL[id].sceneMode = ['t2', 't3', 't5'].includes(id) ? 'full' : 'panel';
+  TPL[id].summary = id === 't3' ? 'Offer and real product over a clear, full room photograph.' : ({ t1: 'Violet collage with a room panel.', t2: 'White speech bubble over a room photograph.', t4: 'Room photograph above a cream copy panel.', t5: 'Warm full room with bold white copy.' })[id];
+}

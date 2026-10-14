@@ -21,9 +21,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROCESS = os.path.join(ROOT, "finishing", "process.py")
 
 
+# This suite covers the original v16 finishing path only. New T6–T11 are
+# composed directly and are covered by tests/template-layouts.test.mjs (99 layouts).
 def _specs():
     js = ("import('./core/engine.mjs').then(E=>import('./core/brand.mjs').then(B=>{const o={};"
-          "for(const t of B.TPL_ORDER){o[t]={};for(const k of B.KINDS){const g=E.gridSpec(t,k);"
+          "for(const t of ['t1','t2','t3','t5','t4']){o[t]={};for(const k of B.KINDS){const g=E.gridSpec(t,k);"
           "o[t][k]={grid:g,finish:E.finishSpec(g),W:B.CANVAS[k].W,H:B.CANVAS[k].H};}}"
           "process.stdout.write(JSON.stringify(o));}))")
     return json.loads(subprocess.check_output(["node", "-e", js], cwd=ROOT))

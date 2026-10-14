@@ -4,10 +4,13 @@
 // supplies the scene photograph; the product is the real photo (background removed), and every
 // word, the CTA and the logo are set here in Montserrat, so they are identical on every render.
 //
+// The six October 2026 reference defaults and explicit photo modes are in scene-layouts.mjs.
 // Units are pixels of the finished file. Each size lists its boxes; the page script (page.mjs)
 // fits text into them and then checks the layout rules (no overlaps, safe zones, fonts present)
 // before anything is rendered or paid for.
 import { BRAND, TPL, LOGOGRID, CANVAS, LOGO_AR } from "../core/brand.mjs";
+import { normalizeSceneLayout, resolveSceneLayout } from "../core/composed.mjs";
+import { photographicLayout, referenceLayout } from "./scene-layouts.mjs";
 
 export { COMPOSED_TEMPLATES, isComposed } from "../core/composed.mjs";
 
@@ -209,7 +212,11 @@ const T5 = {
   },
 };
 
-export const LAYOUTS = { t1: T1, t2: T2, t3: T3, t4: T4, t5: T5 };
+const defaultSizes = fn => Object.fromEntries(['master', 'portrait', 'landscape'].map(kind => [kind, fn(kind)]));
+export const LAYOUTS = {
+  t1: T1, t2: T2, t3: defaultSizes(kind => photographicLayout('t3', kind, 'full')), t4: T4, t5: T5,
+  ...Object.fromEntries(['t6', 't7', 't8', 't9', 't10', 't11'].map(tpl => [tpl, defaultSizes(kind => referenceLayout(tpl, kind, TPL[tpl].sceneMode, TPL[tpl].theme))])),
+};
 
 // The trust seal only repeats a proof line that is a certification or warranty (brand rule).
 const SEAL_RX = /\b(warrant(y|ied)|UL|ETL|cETL|listed|certified|certification|DLC|Energy Star|FCC|RoHS|CE)\b/i;
@@ -220,7 +227,9 @@ export function sealText(form) {
 
 // Everything the page needs for one size. Pure data; page.mjs turns it into HTML.
 export function layoutFor(tpl, kind, form) {
-  const L = LAYOUTS[tpl] && LAYOUTS[tpl][kind];
+  const sceneLayout = normalizeSceneLayout(form.sceneLayout), sceneMode = resolveSceneLayout(tpl, sceneLayout);
+  if (!TPL[tpl] || !CANVAS[kind]) throw new Error("No composed layout for " + tpl + " " + kind);
+  const L = sceneLayout === "template" ? LAYOUTS[tpl]?.[kind] : photographicLayout(tpl, kind, sceneMode, TPL[tpl].theme || {});
   if (!L) throw new Error("No composed layout for " + tpl + " " + kind);
   const C = CANVAS[kind], G = LOGOGRID[tpl];
   // The logo follows the Logo Grid's position and anchor at the composed width (LOGO_W), except
@@ -228,7 +237,9 @@ export function layoutFor(tpl, kind, form) {
   const lw = LOGO_W[kind];
   if (lw < 0.2 * C.W || lw > 0.36 * C.W) throw new Error("Logo width outside the brand's 20–36% of frame width for " + kind);
   let lx = null, ly = null;
-  if (!L.logo.inPanel) {
+  if (L.photographic) {
+    lx = L.logo.x; ly = L.logo.y;
+  } else if (!L.logo.inPanel) {
     const [gx, gy] = G.pos[kind], a = typeof G.a === "object" ? G.a[kind] : G.a;
     lx = a === "tc" ? Math.round(gx + (C.w - lw) / 2) : a === "tr" ? gx + C.w - lw : gx;
     ly = gy;
@@ -239,7 +250,7 @@ export function layoutFor(tpl, kind, form) {
   const showContact = T.contact && !(T.contactIn && T.contactIn[kind] === "");
   const contact = showContact ? [phone, email].filter(Boolean).join(T.contactIn && T.contactIn[kind] === "inline" ? "  |  " : "  ·  ") : "";
   return {
-    tpl, kind, W: C.W, H: C.H, L,
+    tpl, kind, sceneLayout, sceneMode, W: C.W, H: C.H, L,
     logo: { colour: L.logo.colour || G.colour, x: lx, y: ly, w: lw, h: Math.round(lw * LOGO_AR), inPanel: !!L.logo.inPanel, scrim: !!L.logo.scrim },
     text: {
       h1: String(form.h1 || "").trim(), h2: String(form.h2 || "").trim(), proof, cta: String(form.cta || "").trim(), contact,

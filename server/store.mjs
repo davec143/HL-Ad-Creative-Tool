@@ -10,8 +10,9 @@ export class Store {
     this.dir = dataDir;
     this.runsDir = path.join(dataDir, "runs");
     this.filesDir = path.join(dataDir, "files");
+    this.batchesDir = path.join(dataDir, "batches");
     this.stateDir = path.join(dataDir, "state");
-    for (const d of [this.runsDir, this.filesDir, this.stateDir]) fs.mkdirSync(d, { recursive: true });
+    for (const d of [this.runsDir, this.filesDir, this.stateDir, this.batchesDir]) fs.mkdirSync(d, { recursive: true });
   }
 
   static newId() { return "r" + Date.now().toString(36) + crypto.randomBytes(3).toString("hex"); }
@@ -38,6 +39,16 @@ export class Store {
     const runs = files.map((f) => this.readJson(path.join(this.runsDir, f))).filter(Boolean);
     runs.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     return runs.slice(0, limit);
+  }
+
+  // ---- batches: immutable child order; execution state survives server restarts ----
+  batchPath(id) { if (!Store.validId(id)) throw new Error("bad batch id"); return path.join(this.batchesDir, id + ".json"); }
+  saveBatch(batch) { batch.updatedAt = Date.now(); this.writeJson(this.batchPath(batch.id), batch); return batch; }
+  getBatch(id) { return Store.validId(id) ? this.readJson(this.batchPath(id)) : null; }
+  listBatches(limit = 20) {
+    return fs.readdirSync(this.batchesDir).filter((f) => f.endsWith(".json"))
+      .map((f) => this.readJson(path.join(this.batchesDir, f))).filter(Boolean)
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, limit);
   }
 
   // ---- files ----
@@ -71,16 +82,47 @@ export class Store {
     this.setState("ledger", led);
     return led.entries[attemptId];
   }
-  reserve(attemptId, runId, amount) { return this.ledgerSet(attemptId, { runId, amount, day: Store.today(), state: "reserved" }); }
+  // Transfer a batch's planned reservation to the real attempt in ONE atomic ledger write.
+  // Saving the prepared attempt happens first; a crash before transfer is safely not-sent.
+  reserve(attemptId, runId, amount) {
+    const led = this.ledger(), key = "plan-" + runId, plan = led.entries[key];
+    if (led.entries[attemptId]) return led.entries[attemptId];
+    if (plan && plan.state === "reserved") {
+      plan.amount = Math.max(0, plan.amount - amount);
+      if (!plan.amount) plan.state = "released";
+    }
+    const e = { runId, batchId: plan && plan.batchId || null, amount, day: Store.today(), state: "reserved", at: Date.now() };
+    led.entries[attemptId] = e; this.setState("ledger", led); return e;
+  }
+  reserveBatch(batchId, runIds, amount) {
+    const led = this.ledger();
+    for (const runId of runIds) {
+      const key = "plan-" + runId;
+      if (!led.entries[key]) led.entries[key] = { kind: "batch_plan", batchId, runId, amount, initialAmount: amount, day: Store.today(), state: "reserved", at: Date.now() };
+    }
+    this.setState("ledger", led);
+  }
+  plannedForRun(runId) { const e = this.ledger().entries["plan-" + runId]; return e && e.state === "reserved" ? e.amount : 0; }
+  releaseBatchPlans(batchId, runId = null) {
+    const led = this.ledger();
+    for (const e of Object.values(led.entries)) if (e.kind === "batch_plan" && e.batchId === batchId && (!runId || e.runId === runId) && e.state === "reserved") e.state = "released";
+    this.setState("ledger", led);
+  }
+  creditsForBatch(batchId) { return this.creditTotals((e) => e.batchId === batchId); }
+  reservedCredits() { return this.creditTotals(() => true).reserved; }
   markSpent(attemptId) { return this.ledgerSet(attemptId, { state: "spent" }); }
-  release(attemptId) { return this.ledgerSet(attemptId, { state: "released" }); }
+  release(attemptId) {
+    const e = this.ledger().entries[attemptId];
+    // Recovery may release a prepared attempt saved just before reserve() was reached.
+    return this.ledgerSet(attemptId, { state: "released", ...(!e || !Number.isFinite(e.amount) ? { amount: 0 } : {}) });
+  }
   creditTotals(filter) {
     const t = { reserved: 0, spent: 0, released: 0 };
     for (const e of Object.values(this.ledger().entries)) if (filter(e)) t[e.state] = (t[e.state] || 0) + e.amount;
     t.committed = t.reserved + t.spent;
     return t;
   }
-  creditsForDay(day = Store.today()) { return this.creditTotals((e) => e.day === day); }
+  creditsForDay(day = Store.today()) { return this.creditTotals((e) => e.day === day || (e.kind === "batch_plan" && e.state === "reserved")); }
   creditsForRun(runId) { return this.creditTotals((e) => e.runId === runId); }
   // Backwards-compatible: reserved + spent today.
   creditsToday() { return this.creditsForDay().committed; }

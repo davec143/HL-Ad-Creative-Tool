@@ -67,3 +67,31 @@ to be held for review rather than silently delivered.
 
 Drive's in-place media update follows the documented
 [files.update API](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/update).
+
+## October 14: scene layouts, reference templates and batches
+
+The builder now offers all six supplied October reference families (T6–T11), each at three
+placement sizes. Original T1–T5 prompt/finishing parity remains isolated from these composed-only
+extensions. The reference artwork and validation gallery are kept outside this public repository.
+
+Scene placement is explicit: reference layout, full background, or large photo panel. T3's default
+now shows an unblurred full-room photo with a modest real product cutout. Full/panel modes preserve
+substantial visible room area. T6's graphic default has no scene, no scene credit charge, and one
+three-file set; choosing a photographic mode enables multi-set batches.
+
+Batches contain one to five sequential sets, with a distinct scene brief for each and three files
+per set. They persist child identities, request idempotency, planned credit reservations, progress,
+and interruption state. Unknown paid submissions pause for a decision. Cancellation stops unused
+work; accepted work is reconciled. Batch ZIPs include only deliverable files in Set-01 through
+Set-05 folders. Product-cutout approval or replacement refreshes applicable finished siblings
+without buying another scene, and remains bound to the reviewed cutout revision.
+
+New regression suites cover batch admission, lost responses, cancellation, restart recovery,
+credit reservations across days, sibling cutout changes, static graphic generation, and browser
+response ownership. `tests/template-layouts.test.mjs` renders all 11 templates × three scene
+choices × three sizes with real Chromium. Additional private checks measure visible scene pixels,
+inspect 27 real-room/product compositions, and exercise a five-set browser workflow and ZIP hashes.
+
+Scene checks screen defined defects, not overall design quality. Product review and failed-output
+holds remain explicit. Provider/LLM/Drive fault injection uses test doubles; production verification
+uses free previews and existing scenes instead of buying stress-test renders.

@@ -4,13 +4,13 @@
 // (legacy/v16/source/b_script.js); tests/parity.test.mjs checks every output byte-for-byte
 // against the original script.
 //
-// `form` is a plain object: {tpl, h1, h2, sub, p1, p2, p3, cta, phone, email, deadline, scene, angle}.
+// `form` is a plain object: {tpl, h1, h2, sub, p1, p2, p3, cta, phone, email, deadline, scene, angle, sceneLayout}.
 import {
   BRAND, TPL, LIMITS, CANVAS, KINDS, LOGOGRID, FIELD, SAFE_TOP, LOGO_AR, LOGOWHERE, ARFOR,
 } from "./brand.mjs";
-import { isComposed, COMPOSED_SCENE_TXT } from "./composed.mjs";
+import { isComposed, COMPOSED_SCENE_TXT, SCENE_LAYOUTS } from "./composed.mjs";
 
-export const FORM_FIELDS = ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "phone", "email", "deadline", "scene", "angle"];
+export const FORM_FIELDS = ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "phone", "email", "deadline", "scene", "angle", "sceneLayout"];
 
 export function tplOf(id) { return TPL[id] || TPL.t1; }
 function val(form, id) { return form && form[id] != null ? String(form[id]) : ""; }
@@ -77,6 +77,7 @@ export function checkLimits(form) {
 // Everything Generate checks before a credit is spent. Returns [] or [{title, body}].
 export function validateForGenerate(form, { hasImage }) {
   const T = tplOf(form.tpl), v = (id) => val(form, id).trim();
+  if (v("sceneLayout") && !SCENE_LAYOUTS.includes(v("sceneLayout"))) return [{ title: "Choose a scene layout", body: "Choose Template default, Full background, or Photo panel." }];
   if (!hasImage) return [{ title: "Pick a product image first", body: "Search the catalog and choose a product, or paste a public image URL." }];
   if (!v("h1") && !v("h2")) return [{ title: "Write a headline", body: "At least one headline line is needed." }];
   if (T.deadline && (!v("h1") || !v("deadline"))) return [{ title: "Add the offer and deadline", body: "Template 3 needs the offer line (e.g. 11% OFF) and the deadline line. Use only a real, approved offer." }];
@@ -212,7 +213,13 @@ export function draftBrief(tplId, product, angle) {
   if (!known) known = "No product listing was available — work only from the angle below.\n";
   angle = String(angle || "").trim();
   const T = tplOf(tplId), reg = T.register;
-  let writeTxt = WRITE_TXT[tplId] || "";
+  const limits = LIMITS[tplId] || {};
+  let writeTxt = WRITE_TXT[tplId] ||
+    `h1 — a clear benefit headline, at most ${limits.h1 || 24} characters.\n` +
+    `h2 — a short second line completing the thought, at most ${limits.h2 || 24} characters.\n` +
+    (T.sub ? `sub — one supporting sentence, at most ${limits.sub || 60} characters.\n` : "") +
+    (T.proof === "none" ? "p1, p2, p3 — return empty strings; this design has no proof list.\n" : `p1, p2, p3 — concrete supported proof points, at most ${limits.p || 28} characters each.\n`) +
+    `cta — 2 or 3 words, imperative verb first, at most ${limits.cta || 20} characters.\n`;
   if (!T.sub) writeTxt += "sub — return an empty string; this template has no subheadline.\n";
   const sceneTxt = isComposed(tplId) ? COMPOSED_SCENE_TXT : reg === "promo"
     ? "scene — ONE sentence describing the setting behind an angled product flat-lay: the surface it rests on and the softly lit room behind. Do not describe the product's appearance, do not mention text, logos, colours or layout.\n\n"

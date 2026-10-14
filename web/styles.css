@@ -160,3 +160,8 @@ select{max-width:100%;text-overflow:ellipsis}
 .cutpair figure.violet{background:#523875}
 .cutpair img{display:block;max-width:100%;max-height:200px;margin:0 auto}
 .cutpair figcaption{font-size:11px;color:var(--text-faint);text-align:center;margin-top:4px}
+
+.batch{background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:13px;margin-bottom:14px;overflow-wrap:anywhere}
+.batch>b{font-family:var(--display);font-size:15px}.batch p{margin:6px 0}
+.batchsets{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.batchsets [aria-pressed=true]{border-color:var(--violet);background:var(--violet-deep);color:#fff}
+.batch .rowbtn a{text-decoration:none}.batchhistory{display:grid;gap:4px;padding:10px 0;border-bottom:1px solid var(--line)}.batchhistory button{text-align:left}

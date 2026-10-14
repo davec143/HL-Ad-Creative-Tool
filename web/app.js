@@ -1,12 +1,13 @@
 // HitLights Ad Builder page. Talks to this app's own API; shares core/engine.mjs with the server
 // so limits, prompts and the prompt pack are computed by exactly the same code in both places.
-import { TPL, SAMPLE, LIMITS, FLAGTXT } from "/core/brand.mjs";
+import { TPL, TPL_ORDER, SAMPLE, LIMITS, FLAGTXT } from "/core/brand.mjs";
 import { checkLimits, validateForGenerate, packText, FORM_FIELDS } from "/core/engine.mjs";
-import { isComposed, COMPOSED_SAMPLE_SCENE } from "/core/composed.mjs";
+import { isComposed, COMPOSED_SAMPLE_SCENE, resolveSceneLayout } from "/core/composed.mjs";
 
 const $ = (id) => document.getElementById(id);
 const logEl = $("log"), outEl = $("out");
 let status = null, picked = null, currentRun = null, pollTimer = null, lastTpl = "t1";
+let currentBatch = null, batchTimer = null, batchVersion = 0, batchesVersion = 0, pendingGeneration = null, generationBusy = false, workBusy = false;
 let selectionVersion = 0, pollVersion = 0, previewVersion = 0, searchVersion = 0, statusVersion = 0, runsVersion = 0;
 // Composed templates: the server's list wins (COMPOSED_TEMPLATES can switch them off).
 const composedNow = (tpl) => (status && Array.isArray(status.composed) ? status.composed.includes(tpl) : isComposed(tpl));
@@ -45,7 +46,7 @@ function recall(k) { try { return localStorage.getItem(k); } catch { return null
 
 // ---------- sign in ----------
 function showLogin() {
-  clearTimeout(pollTimer); pollVersion++; previewVersion++; searchVersion++; statusVersion++;
+  clearTimeout(pollTimer); clearTimeout(batchTimer); batchVersion++; pollVersion++; previewVersion++; searchVersion++; statusVersion++;
   $("login").hidden = false; $("app").hidden = true;
 }
 $("pwgo").addEventListener("click", async () => {
@@ -75,13 +76,38 @@ function showGate() {
     for (const t of lines) g.appendChild(el("p", null, t));
   }
 }
+function noScene() { return composedNow($("ground").value) && resolveSceneLayout($("ground").value, $("sceneLayout").value) === "none"; }
+function updateBatchOptions() {
+  const fixed = noScene() || !composedNow($("ground").value);
+  if (fixed) $("setCount").value = "1";
+  $("setCount").disabled = fixed;
+  $("setCountHint").textContent = noScene() ? "This reference is a graphic product layout: one set, three files, zero scene credits. Choose Full background or Large photo panel to generate multiple scenes." :
+    !composedNow($("ground").value) ? "This renderer supports one set at a time." : "Each set gets a different scene. Your product, copy and chosen layout stay consistent across every set and size.";
+}
+function setCount() { return Math.max(1, Math.min(5, Number($("setCount").value) || 1)); }
+function generateLabel() { const n = setCount(); return "Generate " + n + (n === 1 ? " set" : " sets") + " · " + (n * 3) + " files"; }
 function showCost() {
-  const c = $("cost"), per = status ? status.creditsPerRender : 2, comp = composedNow($("ground").value), set = (comp ? 1 : 3) * per;
+  updateBatchOptions();
+  const c = $("cost"), per = status ? status.creditsPerRender : 2, comp = composedNow($("ground").value), n = setCount(), total = noScene() ? 0 : n * (comp ? 1 : 3) * per;
   const bal = status && status.balance;
-  c.textContent = (comp
-    ? "A set uses about " + set + " Higgsfield credits: one scene photo for all three sizes. Re-composing after a fix is free."
-    : "A set uses " + set + " Higgsfield credits (3 renders × " + per + "). Regenerating one size, or repainting a blank patch, adds " + per + ".") + (bal != null ? " Balance: " + Math.round(bal * 10) / 10 + " credits." : "");
-  c.classList.toggle("low", bal != null && bal < set);
+  c.textContent = n + (n === 1 ? " set" : " sets") + " · " + (n * 3) + " files · about " + total + " Higgsfield credits. " +
+    (noScene() ? "Graphic layout: no scene render is needed." : comp ? "One different scene per set, shared across its three sizes. Re-composing is free." : "Three renders per set. Regenerating a size adds " + per + " credits.") +
+    (bal != null ? " Balance: " + Math.round(bal * 10) / 10 + " credits." : "");
+  c.classList.toggle("low", bal != null && bal < total);
+  if (!$("go").disabled) $("go").textContent = generateLabel();
+}
+$("setCount").addEventListener("change", showCost);
+function sceneLayoutHint() {
+  const mode = $("sceneLayout").value || "template";
+  $("sceneLayoutHint").textContent = mode === "full" ? "The room fills the ad, with a clear photo and a small product cutout. A local shade keeps your message readable." :
+    mode === "panel" ? "A large, clear room photo sits beside the brand colour and message. The product has its own space." :
+    (TPL[$("ground").value]?.summary || "Uses the reference design's arrangement. Preview all three sizes before generating.");
+}
+$("sceneLayout").addEventListener("change", () => { applyTpl(); });
+function populateTemplates() {
+  const select = $("ground"), selected = select.value || "t1"; select.innerHTML = "";
+  for (const id of TPL_ORDER) { const o = el("option", null, TPL[id].name); o.value = id; select.appendChild(o); }
+  select.value = TPL[selected] ? selected : "t1";
 }
 
 // ---------- tabs ----------
@@ -168,7 +194,8 @@ function pickUrl() {
   else { picked = null; $("picked").hidden = true; invalidatePreview(); }
 }
 $("imgurl").addEventListener("change", pickUrl);
-$("imgname").addEventListener("change", () => { if (picked && picked.url === $("imgurl").value.trim()) pickUrl(); });
+$("imgurl").addEventListener("input", pickUrl);
+for (const event of ["input", "change"]) $("imgname").addEventListener(event, () => { if (picked && picked.url === $("imgurl").value.trim()) pickUrl(); });
 
 // ---------- template switcher, sample copy and limits (as v16) ----------
 const SAMPLE_FIELDS = ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "deadline", "scene"];
@@ -194,10 +221,12 @@ function applyTpl() {
   const comp = composedNow(id);
   $("previewRow").hidden = !comp; if (!comp) $("preview").hidden = true;
   $("howComposed").hidden = !comp; $("howLegacy").hidden = comp;
+  $("howComposed").textContent = noScene() ? "The app builds this graphic reference in all three sizes without an AI scene render: your real product cutout, exact copy, brand type, logo and CTA. Product and output checks still apply." : "Higgsfield renders one distinct scene per set. The app builds all three sizes using the real product cutout, your exact copy, Montserrat, the gold CTA and the real logo. Copy fit is checked before credits are spent; scene screening checks for background defects. Review the design before publishing.";
   $("sceneLabel").textContent = comp ? "The scene — the space and the light" : "The shot — what's happening in the photo";
   $("sceneHint").textContent = comp ? "Describe the room and where the LED glow falls. No people, hands or devices: the product is added from its own photo." : "Describe a real scene. The product itself is carried over from the image above.";
-  $("go").textContent = "Generate the three sizes";
-  if (status) showCost();
+  $("sceneLayoutWrap").hidden = !comp; $("sceneWrap").hidden = noScene(); sceneLayoutHint();
+  if (!$("go").disabled) $("go").textContent = generateLabel();
+  showCost();
   showLimits();
 }
 const LIMIT_FIELDS = ["h1", "h2", "sub", "deadline", "p1", "p2", "p3", "cta"];
@@ -257,7 +286,7 @@ function paintPreview(p) {
   box.appendChild(cutoutPanel(p.cutout, null));
   if (!p.sizes.length) return;
   const okAll = p.sizes.every((s) => s.ok);
-  box.appendChild(el("div", "qa " + (okAll ? "pass" : "fail"), okAll ? "The copy fits all three sizes. The grey panel is where the scene photo goes." : "Some copy doesn't fit — fix it before generating (nothing is charged until it fits):"));
+  box.appendChild(el("div", "qa " + (okAll ? "pass" : "fail"), okAll ? (noScene() ? "The copy fits all three sizes. This graphic layout uses no scene photo." : "The copy fits all three sizes. The placeholder shows exactly where your scene will appear.") : "Some copy doesn't fit — fix it before generating (nothing is charged until it fits):"));
   const strip = el("div", "side");
   for (const s of p.sizes) {
     const d = el("div");
@@ -326,6 +355,7 @@ function cutoutPanel(c, run) {
 // ---------- the scene photo (composed sets) ----------
 function scenePanel(r, working) {
   const X = r.scene, box = el("div", "outcard");
+  if (X.state === "not_applicable") { box.appendChild(el("b", null, "Graphic reference layout · no scene render")); box.appendChild(el("p", "hint", "This template uses a graphic background. Scene screening does not apply; product and output checks still apply.")); return box; }
   box.appendChild(el("b", null, "Scene photo — the one paid render" + (X.version > 1 ? " · v" + X.version : "")));
   if (X.state === "ambiguous" && X.attemptId) { box.appendChild(decisionPanel(r, { ...X, dims: "scene photo" }, working)); return box; }
   if (X.preview) { const i = el("img"); i.src = X.preview; i.alt = "Scene photo"; box.appendChild(i); }
@@ -333,8 +363,8 @@ function scenePanel(r, working) {
   if (X.preparation && X.preparation.cropped) box.appendChild(el("div", "dim", "Plain white margins removed from the existing render. Original preserved; no extra Higgsfield credits."));
   const q = X.qa;
   if (q) {
-    if (q.scope === "visible_scene") box.appendChild(el("div", "dim", "Scene verdict checked against all three finished ads, including the template's crop, blur and real product."));
-    const label = q.state === "pass" && q.scope === "visible_scene" ? "Scene check: all three finished backgrounds passed." : { pass: "Scene check: clean photo — no stray text, panels, faces or devices.", fail: "Scene check: needs repair or review.", uncertain: "Scene check: unsure — look at the photo yourself.", running: "Scene check: looking at the photo…", off: "Scene check: off (no language model configured) — look at the photo yourself.", error: "Scene check: couldn't run (" + (q.message || q.code || "error") + ")." }[q.state] || q.state;
+    if (q.scope === "visible_scene") box.appendChild(el("div", "dim", "Scene verdict checked against all three finished ads, including the selected scene placement and real product. This screens scene defects; review the design before publishing."));
+    const label = q.state === "pass" && q.scope === "visible_scene" ? "Scene check: all three finished backgrounds passed." : { pass: "Scene check: no listed background defects found.", fail: "Scene check: needs repair or review.", uncertain: "Scene check: unsure — look at the photo yourself.", running: "Scene check: looking at the photo…", off: "Scene check: off (no language model configured) — look at the photo yourself.", error: "Scene check: couldn't run (" + (q.message || q.code || "error") + ")." }[q.state] || q.state;
     const d = el("div", "qa " + (q.state === "pass" || q.approved ? "pass" : "fail")); d.appendChild(el("b", null, label));
     if (q.issues && q.issues.length) { const ul = el("ul"); q.issues.forEach((i) => ul.appendChild(el("li", null, i))); d.appendChild(ul); }
     if (q.approved) d.appendChild(el("div", "dim", "Approved by a person " + new Date(q.approved.at).toLocaleString()));
@@ -356,7 +386,7 @@ function scenePanel(r, working) {
 
 // ---------- generate ----------
 function setBusy(b) {
-  $("go").disabled = b; $("go").textContent = b ? "Working…" : "Generate the three sizes";
+  workBusy = !!b; $("go").disabled = b || generationBusy; $("go").textContent = $("go").disabled ? "Working…" : generateLabel();
   document.querySelectorAll(".regen").forEach((r) => { r.disabled = b; });
 }
 $("go").addEventListener("click", async () => {
@@ -364,18 +394,32 @@ $("go").addEventListener("click", async () => {
   const f = form();
   const bad = validateForGenerate(f, { hasImage: !!(picked && picked.url) });
   if (bad.length) { fail(bad[0].title, bad[0].body); return; }
-  if (status && status.renderer.needsAuth) { fail("Connect Higgsfield first", "Use the sign-in button at the top of the page."); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  if (status && status.renderer.needsAuth && !noScene()) { fail("Connect Higgsfield first", "Use the sign-in button at the top of the page."); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  if (generationBusy) return;
   const selection = selectionVersion;
-  setBusy(true);
+  const payload = { form: f, picked, saveDrive: $("saveDrive").checked, count: setCount() };
+  const key = JSON.stringify(payload);
+  // Keep the same request id after an unknown network outcome, including after reload.
+  if (!pendingGeneration) { try { pendingGeneration = JSON.parse(recall("hl-pending-generation") || "null"); } catch { pendingGeneration = null; } }
+  if (!pendingGeneration || pendingGeneration.key !== key) pendingGeneration = { key, requestId: crypto.randomUUID() };
+  store("hl-pending-generation", JSON.stringify(pendingGeneration));
+  generationBusy = true; setBusy(true);
   try {
-    const { run } = await api("/api/runs", { method: "POST", body: { form: f, picked, saveDrive: $("saveDrive").checked } });
-    if (selection === selectionVersion) openRun(run.id, run);
-    else loadRuns();
-  } catch (e) { if (selection === selectionVersion) { setBusy(false); if (e.code !== "login") fail("Couldn't start the set", e.message); } }
+    const result = await api(composedNow(f.tpl) ? "/api/batches" : "/api/runs", { method: "POST", body: { ...payload, requestId: pendingGeneration.requestId } });
+    const { batch, run } = result;
+    pendingGeneration = null; store("hl-pending-generation", null); generationBusy = false;
+    if (selection === selectionVersion) { if (batch) openBatch(batch.id, batch); else openRun(run.id, run); }
+    else { setBusy(workBusy); loadRuns(); loadBatches(); }
+  } catch (e) {
+    generationBusy = false;
+    if (selection !== selectionVersion) setBusy(workBusy);
+    if (selection === selectionVersion) { setBusy(false); if (e.code !== "login") fail("Couldn't start generation", e.message + (!e.status || e.status >= 500 ? " Retry with the same settings: the request is protected against duplicate batches." : "")); }
+  }
 });
 
 // ---------- output ----------
-function openRun(id, run) {
+function openRun(id, run, keepBatch = false) {
+  if (!keepBatch) { currentBatch = null; clearTimeout(batchTimer); batchVersion++; store("hl-batch", null); $("batch").hidden = true; }
   clearTimeout(pollTimer); pollVersion++; selectionVersion++;
   currentRun = id; store("hl-run", id);
   if (run) paintRun(run);
@@ -395,7 +439,7 @@ async function poll() {
     const { run, busy } = await api("/api/runs/" + id);
     if (currentRun !== id || version !== pollVersion) return;
     paintRun(run, busy);
-    const live = ["queued", "running"].includes(run.status) || busy === run.id;
+    const live = ["batch_queued", "queued", "running"].includes(run.status) || busy === run.id;
     setBusy(!!busy);
     if (live || busy) pollTimer = setTimeout(poll, 2500);
     else { loadRuns(); refreshStatus().catch(() => {}); }
@@ -409,18 +453,22 @@ async function act(action, body = {}, id = currentRun) {
   try { const { run } = await api("/api/runs/" + id + "/" + action, { method: "POST", body }); showRunUpdate(run, id); }
   catch (e) { if (currentRun === id && e.code !== "login") fail("That didn't work", e.message); }
 }
-function showRunUpdate(run, requestedId) { if (currentRun === requestedId) openRun(run.id, run); }
+function showRunUpdate(run, requestedId) {
+  if (currentRun !== requestedId) return;
+  if (currentBatch && run.batchId === currentBatch) { paintRun(run); pollBatch(); }
+  else openRun(run.id, run);
+}
 function paintRun(r, busy) {
   logEl.innerHTML = "";
-  for (const l of r.log) { const s = el("span", "s-" + (l.cls || "run"), l.msg + "\n"); logEl.appendChild(s); }
+  for (const l of r.log || []) { const s = el("span", "s-" + (l.cls || "run"), l.msg + "\n"); logEl.appendChild(s); }
   logEl.scrollTop = logEl.scrollHeight;
   // run-level buttons
   const rb = $("runbtns"); rb.innerHTML = ""; rb.hidden = false;
-  const working = ["queued", "running"].includes(r.status) || busy === r.id;
+  const working = ["batch_queued", "queued", "running"].includes(r.status) || !!busy;
   if (!working && (r.status === "failed" || r.status === "partial") && !r.attempts.some((a) => a.state === "ambiguous")) { const b = el("button", "btn-quiet regen", "Resume this set"); b.type = "button"; b.onclick = () => act("resume", {}, r.id); rb.appendChild(b); }
   if (r.items.some((x) => x.file)) { const a = el("a", "btn-quiet", "Download all (.zip)"); a.href = "/api/runs/" + r.id + "/zip"; a.style.textDecoration = "none"; rb.appendChild(a); }
   if (!working && !r.composed && r.items.some((x) => x.rawUrl)) { const b = el("button", "btn-quiet regen", "Finish these renders again (0 credits)"); b.type = "button"; b.onclick = () => act("refinish", {}, r.id); rb.appendChild(b); }
-  if (!working && r.composed && r.scene && r.scene.preview) { const b = el("button", "btn-quiet regen", "Re-compose (0 credits)"); b.type = "button"; b.onclick = () => act("refinish", {}, r.id); rb.appendChild(b); }
+  if (!working && r.composed && r.scene && (r.scene.preview || r.scene.state === "not_applicable")) { const b = el("button", "btn-quiet regen", "Re-compose (0 credits)"); b.type = "button"; b.onclick = () => act("refinish", {}, r.id); rb.appendChild(b); }
   if (!working && r.composed && r.scene && (r.scene.preview || r.scene.state === "failed")) {
     const per = status ? status.creditsPerRender : 2;
     const b = el("button", "btn-quiet regen", "New scene — a new set (" + per + " credits)"); b.type = "button";
@@ -498,7 +546,7 @@ function card(r, x, working) {
 }
 
 // ---------- delivery status (core/gates.mjs decides; the page only shows it) ----------
-const DELIVERY_LABEL = { passed: "Ready to use — every check passed.", held: "Held back — don't use this file yet.", unchecked: "Unchecked — not verified, so it isn't delivered automatically.", overridden: "Used anyway — a person overrode the checks.", failed: "Failed.", pending: "In progress." };
+const DELIVERY_LABEL = { passed: "Ready to download — required checks complete.", held: "Held back — don't use this file yet.", unchecked: "Unchecked — not verified, so it isn't delivered automatically.", overridden: "Used anyway — a person overrode the checks.", failed: "Failed.", pending: "In progress." };
 function deliveryBox(r, x, working) {
   const d = x.delivery || { status: "pending", reasons: [] };
   const box = el("div", "qa " + (d.status === "passed" ? "pass" : d.status === "overridden" ? "" : "fail"));
@@ -581,6 +629,87 @@ function decisionPanel(r, x, working) {
   return box;
 }
 
+// ---------- batches: durable queue, selectable children, and ready-only download ----------
+function openBatch(id, batch = null, selectedRun = null) {
+  clearTimeout(pollTimer); pollVersion++; clearTimeout(batchTimer); batchVersion++; selectionVersion++;
+  currentBatch = id; currentRun = selectedRun || batch?.activeRunId || batch?.runs?.[0]?.id || null;
+  store("hl-batch", id); store("hl-run", currentRun);
+  $("batch").hidden = false; $("batch").textContent = "Loading batch…";
+  for (const key of ["runbtns", "side", "drive"]) { $(key).innerHTML = ""; $(key).hidden = true; }
+  outEl.innerHTML = ""; logEl.textContent = "Loading this batch…";
+  if (batch) paintBatch(batch, ["queued", "running"].includes(batch.status) ? batch.id : null);
+  setBusy(true); pollBatch();
+}
+async function pollBatch() {
+  clearTimeout(batchTimer);
+  if (!currentBatch) return;
+  const id = currentBatch, version = ++batchVersion;
+  try {
+    const { batch, busy } = await api("/api/batches/" + id);
+    if (currentBatch !== id || version !== batchVersion) return;
+    paintBatch(batch, busy); setBusy(!!busy);
+    if (["queued", "running"].includes(batch.status) || busy) batchTimer = setTimeout(pollBatch, 2500);
+    else { loadRuns(); loadBatches(); refreshStatus().catch(() => {}); }
+  } catch (e) {
+    if (currentBatch !== id || version !== batchVersion) return;
+    if (e.status === 404) { currentBatch = null; store("hl-batch", null); $("batch").hidden = true; setBusy(false); logEl.textContent = "This batch is no longer available. Choose another below."; }
+    else if (e.code !== "login") { $("batch").textContent = "Connection interrupted. Reconnecting to your saved batch…"; batchTimer = setTimeout(pollBatch, 5000); }
+  }
+}
+async function batchAction(action) {
+  const id = currentBatch;
+  if (!id) return;
+  try {
+    const { batch } = await api("/api/batches/" + id + "/" + action, { method: "POST" });
+    if (currentBatch !== id) return;
+    paintBatch(batch, ["queued", "running"].includes(batch.status) ? id : null); pollBatch();
+  } catch (e) { if (currentBatch === id && e.code !== "login") fail("Couldn't update the batch", e.message); }
+}
+function paintBatch(batch, busy) {
+  const box = $("batch"); box.hidden = false; box.innerHTML = "";
+  const labels = { queued: "Queued", running: "Generating", paused: "Paused — a set needs attention", done: "Finished", partial: "Finished with items to review", cancelled: "Stopped" };
+  box.appendChild(el("b", null, (labels[batch.status] || batch.status) + " · " + batch.count + (batch.count === 1 ? " set" : " sets")));
+  box.appendChild(el("p", "hint", (batch.readyFiles || 0) + " of " + batch.count * 3 + " files ready · " + batch.completed + " sets completed" + (batch.held ? " · " + batch.held + " held for review" : "") + (batch.failed ? " · " + batch.failed + " need attention" : "") + " · ~" + batch.credits + " credits used/reserved"));
+  if (batch.error) box.appendChild(el("p", "hint", typeof batch.error === "string" ? batch.error : batch.error.message || "The batch needs attention."));
+  if (batch.cancelRequested && batch.status === "running") box.appendChild(el("p", "hint", "Stopping after the current set. No remaining scenes will be submitted."));
+  if (batch.driveErrors) box.appendChild(el("p", "hint", batch.driveErrors + " sets could not be saved to Drive. Open the affected set for details; ready files can still be downloaded."));
+  const list = el("div", "batchsets");
+  for (const r of batch.runs || []) {
+    const b = el("button", "btn-quiet", "Set " + r.setNo + " · " + ({ batch_queued: "queued", needs_decision: "needs a decision" }[r.status] || r.status));
+    b.type = "button"; b.setAttribute("aria-pressed", String(r.id === currentRun));
+    b.onclick = () => { selectionVersion++; currentRun = r.id; store("hl-run", r.id); paintBatch(batch, busy); pollBatch(); };
+    list.appendChild(b);
+  }
+  box.appendChild(list);
+  const row = el("div", "rowbtn");
+  if (batch.readyFiles > 0) { const a = el("a", "btn-quiet", "Download " + batch.readyFiles + " ready files (.zip)"); a.href = "/api/batches/" + batch.id + "/zip"; row.appendChild(a); }
+  if (["queued", "running", "paused"].includes(batch.status) && !batch.cancelRequested) { const b = el("button", "btn-quiet", "Stop after current set"); b.type = "button"; b.onclick = () => batchAction("cancel"); row.appendChild(b); }
+  if (["paused", "partial"].includes(batch.status)) {
+    const b = el("button", "btn-quiet", "Resume remaining sets"); b.type = "button"; b.disabled = !!busy; b.onclick = () => batchAction("resume"); row.appendChild(b);
+    box.appendChild(el("p", "hint", "Open any set needing attention and resolve its checks or unconfirmed render before resuming. Completed scenes are reused."));
+  }
+  box.appendChild(row);
+  let selected = batch.runs?.find(r => r.id === currentRun);
+  if (!selected) { selected = batch.runs?.find(r => r.id === batch.activeRunId) || batch.runs?.[0]; currentRun = selected?.id || null; store("hl-run", currentRun); }
+  if (selected) {
+    paintRun(selected, busy);
+    const plan = batch.scenePlans?.[selected.setNo - 1];
+    if (plan) box.appendChild(el("p", "hint", "Set " + selected.setNo + " scene: " + (typeof plan === "string" ? plan : plan.label || plan.scene || JSON.stringify(plan))));
+  }
+}
+async function loadBatches() {
+  const version = ++batchesVersion;
+  try {
+    const { batches } = await api("/api/batches"); if (version !== batchesVersion) return;
+    const box = $("batches"); box.innerHTML = ""; $("batchesCard").hidden = !batches.length;
+    for (const b of batches) {
+      const row = el("div", "batchhistory"), button = el("button", "linkbtn", new Date(b.ts).toLocaleString() + " · " + b.count + (b.count === 1 ? " set" : " sets") + " · " + (b.runs?.[0]?.product || "Batch"));
+      button.type = "button"; button.onclick = () => openBatch(b.id);
+      row.append(button, el("span", "hint", b.status + " · " + b.readyFiles + "/" + b.count * 3 + " ready files")); box.appendChild(row);
+    }
+  } catch { /* keep existing history during a transient outage */ }
+}
+
 // ---------- recent sets ----------
 async function loadRuns() {
   const version = ++runsVersion;
@@ -595,7 +724,7 @@ async function loadRuns() {
       const tr = el("tr"), dt = new Date(r.ts);
       tr.appendChild(el("td", null, dt.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })));
       const pc = el("td"); const pb = el("button", "linkbtn", r.product || "—"); pb.type = "button"; pb.onclick = () => { openRun(r.id); window.scrollTo({ top: 0, behavior: "smooth" }); }; pc.appendChild(pb); tr.appendChild(pc);
-      tr.appendChild(el("td", null, String(r.tplName || "").replace(/^Template (\d) — /, "T$1 ")));
+      tr.appendChild(el("td", null, String(r.tplName || "").replace(/^Template (\d+) — /, "T$1 ")));
       for (const x of r.items) {
         const td = el("td"), st = (x.delivery && x.delivery.status) || "pending";
         const tag = el("span", "chip " + ({ passed: "ok", overridden: "warn", unchecked: "warn", held: "bad", failed: "bad" }[st] || "warn"));
@@ -642,6 +771,7 @@ async function refreshStatus() {
 }
 async function boot() {
   // Start from the remembered template with its sample copy (v16 opened on T1's).
+  populateTemplates();
   const t = recall("hl-tpl"); if (t && TPL[t]) $("ground").value = t;
   lastTpl = $("ground").value;
   try { await refreshStatus(); } catch (e) { if (e.code === "login") return; fail("The server didn't answer", e.message); }
@@ -654,8 +784,8 @@ async function boot() {
   $("app").hidden = false; $("login").hidden = true; $("logout").hidden = false;
   if (new URLSearchParams(location.search).get("higgsfield") === "connected") { history.replaceState(null, "", "/"); logEl.textContent = "Higgsfield connected. Pick a product, check the message, then generate."; }
   else if (status.renderer.connected) logEl.textContent = "Ready. " + (status.shopify ? "Pick a product" : "Paste a product image URL") + ", check the message, then generate.";
-  loadRuns();
-  const last = recall("hl-run"); if (last) openRun(last);
+  loadRuns(); loadBatches();
+  const batch = recall("hl-batch"), last = recall("hl-run"); if (batch) openBatch(batch, null, last); else if (last) openRun(last);
 }
 $("app").hidden = false;
 boot();

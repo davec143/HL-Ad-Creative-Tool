@@ -11,9 +11,16 @@ import { isComposed, COMPOSED_SCENE_TXT } from "../core/composed.mjs";
 const require = createRequire(import.meta.url);
 const { load, HTML_DEFAULTS } = require("../tools/legacy-harness.cjs");
 const H = load();
+// v16 only contains these five families; new reference families have composer regression tests.
+const LEGACY_TEMPLATES = ["t1", "t2", "t3", "t5", "t4"];
 
 // Documented, intentional differences from v16.
 const DEVIATIONS = {
+  // Oct 14, 2026: six additional composed-only reference families and explicit
+  // sceneLayout=template/full/panel are outside the original v16 generator.
+  // T3 composed default is an unblurred full-room photo; legacy prompts remain
+  // byte-identical and are never used to compose that layout.
+  composedExtensions: ["t6", "t7", "t8", "t9", "t10", "t11"],
   // Template library: white or black lockup only; T2's card uses black (decided Sept 30, 2026).
   logoColour: { t2: ["violet", "black"] },
   // Terminology (Oct 2026): Andromeda is Meta's ad-retrieval system, not a three-size file spec.
@@ -35,7 +42,7 @@ function legacyGrid(tpl, kind) {
 const PHONE = "+1 855 768 4135", EMAIL = "customerservice@hitlights.com";
 function cases() {
   const out = [];
-  for (const tpl of TPL_ORDER) {
+  for (const tpl of LEGACY_TEMPLATES) {
     const s = SAMPLE[tpl];
     out.push({ name: tpl + " sample", form: { tpl, ...s, phone: PHONE, email: EMAIL } });
     out.push({ name: tpl + " html defaults", form: { tpl, ...HTML_DEFAULTS, ground: undefined } });
@@ -64,7 +71,7 @@ for (const c of cases()) {
 }
 
 test("parity: draft brief, every template, with and without product data", async () => {
-  for (const tpl of TPL_ORDER) {
+  for (const tpl of LEGACY_TEMPLATES) {
     for (const [product, angle] of [[{ title: "EZDim 12V LED Dimmer Driver 40W", desc: "UL listed. 0-10V." }, "for electricians"], [null, "bedroom glow-up"], [{ title: "Strip", desc: "" }, ""]]) {
       H.setForm({ tpl, angle });
       H.setPicked(product ? { url: "https://x/y.jpg", label: product.title, title: product.title, desc: product.desc } : null);
@@ -83,7 +90,7 @@ test("parity: draft brief, every template, with and without product data", async
 });
 
 test("parity: QA prompt for 1 and 3 images", () => {
-  for (const tpl of TPL_ORDER) {
+  for (const tpl of LEGACY_TEMPLATES) {
     const form = { tpl, ...SAMPLE[tpl], phone: PHONE, email: EMAIL };
     H.setForm(form);
     const items = KINDS.map((k) => ({ kind: k, dims: CANVAS[k].dims, title: CANVAS[k].title, logo: legacyGrid(tpl, k) }));
@@ -93,7 +100,7 @@ test("parity: QA prompt for 1 and 3 images", () => {
 });
 
 test("parity: render and repaint requests", async () => {
-  for (const tpl of TPL_ORDER) {
+  for (const tpl of LEGACY_TEMPLATES) {
     const form = { tpl, ...SAMPLE[tpl], phone: PHONE, email: EMAIL };
     H.setForm(form);
     const S = { prompts: { master: H.prompt_("master"), portrait: H.prompt_("portrait"), landscape: H.prompt_("landscape") } };
@@ -114,7 +121,7 @@ test("parity: render and repaint requests", async () => {
 
 test("parity: prompt pack steps 1-3 and Logo Grid lines", () => {
   const d = new Date();
-  for (const tpl of TPL_ORDER) {
+  for (const tpl of LEGACY_TEMPLATES) {
     const form = { tpl, ...SAMPLE[tpl], phone: PHONE, email: EMAIL };
     H.setForm(form);
     const picked = { url: "https://cdn.shopify.com/p.jpg", label: "EZDim Pro" };
@@ -140,4 +147,8 @@ test("parity: folder name", () => {
     assert.equal(E.folderName(nm, d), H.folderName());
   }
   H.setPicked(null);
+});
+
+test('new composer-only template families are explicit parity deviations', () => {
+  assert.deepEqual(TPL_ORDER.filter(tpl => !LEGACY_TEMPLATES.includes(tpl)), DEVIATIONS.composedExtensions);
 });

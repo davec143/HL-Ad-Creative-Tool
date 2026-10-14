@@ -12,6 +12,7 @@
 // gated differently, because those parts are exact by construction: the file must pass output
 // validation, the product cutout must have been approved by a person (once per product photo),
 // and the scene photograph must pass its check (or a person approved an "uncertain" result).
+// A graphic layout with no scene needs an explicit not-applicable marker instead of a fake pass.
 
 import { FLAGTXT } from "./brand.mjs";
 
@@ -67,7 +68,8 @@ function composedGate(x, reasons) {
   const c = x.cutout;
   if (!c || !["approved", "uploaded"].includes(c.state)) reasons.push("The product cutout needs a one-time check: compare it with the product photo, then approve it (or upload your own).");
   const s = x.sceneQa;
-  if (!s) { reasons.push("The scene photo check hasn't run."); unchecked = true; }
+  if (x.sceneRequired === false && s?.state === "not_applicable" && s.reason === "layout_no_scene") { /* no photo exists in this layout */ }
+  else if (!s) { reasons.push("The scene photo check hasn't run."); unchecked = true; }
   else if (s.state === "off") { reasons.push("The scene photo check is off (no language model configured)."); unchecked = true; }
   else if (s.state === "error") { reasons.push("The scene photo check couldn't run" + (s.message ? ": " + s.message : ".")); unchecked = true; }
   else if (s.state === "running") { reasons.push("The scene photo check is still running."); unchecked = true; }

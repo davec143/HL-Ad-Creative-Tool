@@ -23,6 +23,7 @@ import { Store } from "./store.mjs";
 import { finishOne, fetchRender, validateOutput, parseResult } from "./finish.mjs";
 import { snapshot, renderParams, repaintParams, qaPrompt } from "../core/engine.mjs";
 import { CANVAS, KINDS } from "../core/brand.mjs";
+import { resolveSceneLayout } from "../core/composed.mjs";
 import { deliverability, parseQaStrict, BLOCKING_FLAGS } from "../core/gates.mjs";
 import { QA_SCHEMA } from "./providers/llm.mjs";
 import { FIDELITY_SCHEMA, fidelityPrompt, parseFidelity } from "../core/fidelity.mjs";
@@ -64,6 +65,7 @@ export class Pipeline {
     this.active = null;          // id of the run being worked on (one at a time)
     this.pending = new Set();    // ids queued or active: a second request for the same run is refused
     this.queue = Promise.resolve();
+    this.batchPending = new Set();
     this.shuttingDown = false;   // set on SIGTERM: no new runs, no new paid submissions
     this.sleep = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
@@ -72,7 +74,15 @@ export class Pipeline {
   log(run, msg, cls = "run") { run.log.push({ t: Date.now(), msg, cls }); this.store.saveRun(run); }
   item(run, kind) { return kind === "scene" ? run.scene || null : run.items.find((x) => x.kind === kind); }
   get cutouts() { return this._cutouts || (this._cutouts = new CutoutStore(this.cfg.dataDir)); }
-  isComposed(tpl) { return this.composedSet.has(tpl) && isComposed(tpl); }
+  isComposed(tpl) { return isComposed(tpl) && (this.composedSet.has(tpl) || Number(tpl.slice(1)) >= 6); }
+  requiresScene(form) { return resolveSceneLayout(form.tpl, form.sceneLayout) !== "none"; }
+  sceneRequired(run) { return run.S.sceneRequired ?? this.requiresScene(run.form); }
+  estimate(form, count = 1) { return count * this.cfg.creditsPerRender * (this.isComposed(form.tpl) ? Number(this.requiresScene(form)) : 3); }
+  noScene(run) {
+    run.scene.state = "not_applicable";
+    run.scene.qa = { state: "not_applicable", reason: "layout_no_scene", version: run.scene.version };
+    this.save(run);
+  }
   allItems(run) { return run.scene ? [...run.items, run.scene] : run.items; }
   save(run) {
     const t = this.store.creditsForRun(run.id);
@@ -90,16 +100,28 @@ export class Pipeline {
 
   // Before ANY new paid request: shutdown, both caps (reservations included) and the live balance.
   async paidPreflight(run, n) {
-    if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Press Resume in a minute.");
+    this.checkSubmissionAllowed(run);
     const c = n * this.cfg.creditsPerRender;
-    const used = this.store.creditsForRun(run.id).committed;
+    const planned = Math.min(c, this.store.plannedForRun(run.id));
+    const used = this.store.creditsForRun(run.id).committed - planned;
     if (used + c > this.cfg.maxCreditsPerRun) throw new PipelineError("credit_cap", `This set has ${used} credits reserved or spent; another ${c} would pass the per-set cap of ${this.cfg.maxCreditsPerRun} (MAX_CREDITS_PER_RUN).`);
-    const today = this.store.creditsToday();
+    const today = this.store.creditsToday() - planned;
     if (today + c > this.cfg.maxCreditsPerDay) throw new PipelineError("credit_cap", `Today's credit cap of ${this.cfg.maxCreditsPerDay} would be passed (${today} reserved or spent). It resets at midnight UTC (MAX_CREDITS_PER_DAY).`);
     let bal;
     try { bal = await this.renderer.balance(); }
     catch (e) { throw new PipelineError(e.code === "needs_auth" ? "needs_auth" : "balance_unavailable", "Couldn't read the Higgsfield balance before spending (" + e.message + "). Nothing was submitted."); }
-    if (typeof bal === "number" && bal < c) throw new PipelineError("credits", `This needs about ${c} Higgsfield credits and the balance is ${bal}. Top up, then press Resume.`);
+    this.checkSubmissionAllowed(run);
+    const availableNeed = c + Math.max(0, this.store.reservedCredits() - planned);
+    if (typeof bal === "number" && bal < availableNeed) throw new PipelineError("credits", `This needs about ${c} Higgsfield credits, with ${availableNeed - c} reserved for other pending work, and the balance is ${bal}. Top up or stop unused batches, then press Resume.`);
+  }
+
+  checkSubmissionAllowed(run) {
+    if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Press Resume in a minute.");
+    if (run.batchId) {
+      const b = this.store.getBatch(run.batchId);
+      if (!b || b.cancelRequested || b.status === "cancelled") throw new PipelineError("batch_cancelled", "The batch was stopped before another render was submitted.");
+      if (b.refresh) throw new PipelineError("batch_refresh", "A cutout update only refreshes saved images. Resume the batch to render its remaining scenes.");
+    }
   }
 
   newAttempt(run, x, purpose, params) {
@@ -135,11 +157,11 @@ export class Pipeline {
 
   // ---------- creating runs ----------
   // input: {form, picked:{url,title,label,outOfStock,desc}, saveDrive}
-  create({ form, picked, saveDrive, setNo = 1, folderOverride }) {
+  create({ form, picked, saveDrive, setNo = 1, folderOverride, batchId = null, id = Store.newId() }) {
     const S = snapshot(form, picked);
     if (folderOverride) S.folder = folderOverride;
     S.composed = this.isComposed(form.tpl);
-    if (S.composed) S.scenePrompt = scenePrompt(form);
+    if (S.composed) { S.scenePrompt = scenePrompt(form); S.sceneRequired = this.requiresScene(form); }
     // The exact product and variant this set was made for, frozen at Generate time.
     picked = picked || {};
     S.source = {
@@ -147,7 +169,7 @@ export class Pipeline {
       variantTitle: picked.variantTitle || "", sku: picked.sku || "", price: picked.price || "", stock: picked.stock || "unknown",
     };
     const run = {
-      id: Store.newId(), ts: Date.now(), status: "queued", error: null, log: [],
+      id, batchId, ts: Date.now(), status: batchId ? "batch_queued" : "queued", error: null, log: [],
       form, picked, S, setNo, saveDrive: !!saveDrive, credits: 0, pass: 0,
       productId: null, masterJob: null, folder: null,
       items: KINDS.map((k) => ({
@@ -167,12 +189,13 @@ export class Pipeline {
 
   // Serialize all work: one run (or regeneration) at a time, like v16's busy lock. A run that is
   // already queued or active can't be queued again (double-clicked Resume, two tabs...).
-  assertAvailable(id) {
+  assertAvailable(id, { allowBatchQueue = false } = {}) {
+    if (!allowBatchQueue && this.batchPending.size && !this.batchPending.has(id)) throw new PipelineError("busy", "A batch is running. Wait for it to finish or stop the remaining sets.");
     if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is already queued or running.");
     if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Try again in a minute.");
   }
-  enqueue(id, fn, { preserveOnError = [] } = {}) {
-    this.assertAvailable(id);
+  enqueue(id, fn, { preserveOnError = [], allowBatchQueue = false } = {}) {
+    this.assertAvailable(id, { allowBatchQueue });
     this.pending.add(id);
     const p = this.queue.then(async () => {
       this.active = id;
@@ -207,13 +230,155 @@ export class Pipeline {
   }
   // On boot: pick up anything that was mid-flight when the server stopped.
   resumeInterrupted() {
-    for (const r of this.store.listRuns(Infinity)) if (r.status === "running" || r.status === "queued") {
+    const owned = new Set();
+    for (const b of this.store.listBatches(Infinity)) if (["initializing", "queued", "running"].includes(b.status)) {
+      for (const id of b.runIds) owned.add(id);
+      try { this.resumeBatch(b.id, { recovery: true }); }
+      catch (e) { b.status = "paused"; b.error = { code: e.code || "error", message: e.message }; this.store.saveBatch(b); }
+    }
+    // Later edits/approvals on an already completed batch still have their own run lifecycle.
+    // Recover those children separately; orphan batch_queued children are never auto-started.
+    for (const r of this.store.listRuns(Infinity)) if (!owned.has(r.id) && (!r.batchId || this.store.getBatch(r.batchId)?.admitted) && (r.status === "running" || r.status === "queued")) {
       // A crash can land between persisting an ambiguous attempt and the final
       // run status. Preserve the decision gate while allowing other runs to recover.
       if ((r.attempts || []).some((a) => a.state === "ambiguous")) {
         r.status = "needs_decision"; r.error = { code: "ambiguous", message: "A render's outcome is unknown. Decide what to do with it before resuming." }; this.save(r);
-      } else this.resume(r.id);
+      } else if (!this.batchPending.size) this.resume(r.id);
+      else this.enqueue(r.id, () => this.process(r.id), { allowBatchQueue: true });
     }
+  }
+
+  // ---------- persistent batches ----------
+  // The user's room/application remains the brief. Each set adds a different, concrete
+  // architectural composition rather than merely numbering an otherwise identical prompt.
+  scenePlans(form, count) {
+    const base = String(form.scene || "A modern interior with warm architectural LED lighting.").trim();
+    const directions = [
+      "An open, airy composition viewed diagonally from the entrance; long light runs lead toward the far wall, with pale stone and light oak surfaces.",
+      "An intimate, layered composition viewed at seated eye level from a different corner; emphasize a recessed illuminated niche, warm plaster and walnut textures.",
+      "A clean, symmetrical architectural composition looking straight into the space; concealed light traces a strong horizontal feature, with smooth stone and satin metal accents.",
+      "A spacious composition from a low oblique viewpoint; stepped ceiling or shelf details create depth, with softly textured walls and dark natural wood.",
+      "A quiet, asymmetric composition viewed across the room; layered foreground and background light creates depth across curved plaster details and natural stone."
+    ];
+    return directions.slice(0, count).map((direction, i) => ({ index: i + 1, scene: count === 1 ? base : base + " Keep this room type, application and time of day; create a different interior design for this photograph. " + direction }));
+  }
+  createBatch({ form, picked, saveDrive, count, requestId = null, requestFingerprint = null }) {
+    if (!Number.isInteger(count) || count < 1 || count > 5) throw new PipelineError("bad_request", "Choose between 1 and 5 sets.");
+    if (!this.isComposed(form.tpl)) throw new PipelineError("bad_request", "Batch generation requires a composed template.");
+    if (this.busy()) throw new PipelineError("busy", "A set or batch is already running.");
+    this.assertAvailable(null);
+    if (!this.requiresScene(form) && count > 1) throw new PipelineError("bad_request", "This graphic template has no scene. Choose a full or panel photo background for multiple distinct sets.");
+    const perSet = this.estimate(form), estimatedCredits = perSet * count;
+    if (perSet > this.cfg.maxCreditsPerRun || (estimatedCredits > 0 && this.store.creditsToday() + estimatedCredits > this.cfg.maxCreditsPerDay)) throw new PipelineError("credit_cap", "The batch would pass the configured credit cap. Choose fewer sets or wait for the daily cap to reset.");
+    const batch = { id: "b" + Store.newId().slice(1), ts: Date.now(), status: "initializing", count,
+      form: structuredClone(form), picked: structuredClone(picked || {}), saveDrive: !!saveDrive,
+      runIds: Array.from({ length: count }, () => Store.newId()), scenePlans: this.scenePlans(form, count),
+      estimatedCredits, perSet, requestId, requestFingerprint, activeRunId: null, cancelRequested: false, error: null };
+    // A manifest exists before any child or reservation. Recovery can complete admission without
+    // guessing IDs or creating a second set. No child may render until admission is complete.
+    this.store.saveBatch(batch);
+    this.initializeBatch(batch);
+    return batch;
+  }
+  initializeBatch(batch) {
+    if (batch.status !== "initializing") return;
+    for (let i = 0; i < batch.runIds.length; i++) if (!this.store.getRun(batch.runIds[i])) {
+      const form = { ...batch.form, scene: batch.scenePlans[i].scene };
+      const folder = snapshot(form, batch.picked).folder + " (set " + (i + 1) + ")";
+      this.create({ form, picked: batch.picked, saveDrive: batch.saveDrive, setNo: i + 1, folderOverride: folder, batchId: batch.id, id: batch.runIds[i] });
+    }
+    const missing = batch.runIds.filter((id) => !this.store.ledger().entries["plan-" + id]).length * batch.perSet;
+    if (missing > 0 && this.store.creditsToday() + missing > this.cfg.maxCreditsPerDay) throw new PipelineError("credit_cap", "The batch's remaining reservations would pass today's credit cap.");
+    this.store.reserveBatch(batch.id, batch.runIds, batch.perSet);
+    batch.admitted = true; batch.status = "queued"; this.store.saveBatch(batch);
+  }
+  startBatch(batch, { recovery = false } = {}) {
+    if (this.pending.has(batch.id)) return this.store.getBatch(batch.id);
+    this.assertAvailable(batch.id, { allowBatchQueue: recovery });
+    batch.status = "queued"; batch.error = null; this.store.saveBatch(batch);
+    this.batchPending.add(batch.id);
+    this.enqueue(batch.id, async () => {
+      try { await this.processBatch(batch.id); }
+      finally { this.batchPending.delete(batch.id); }
+    }, { allowBatchQueue: recovery });
+    return batch;
+  }
+  resumeBatch(id, { recovery = false } = {}) {
+    const b = this.store.getBatch(id);
+    if (!b) throw new PipelineError("not_found", "No such batch.");
+    if (this.pending.has(id)) return b;
+    if (b.status === "cancelled") throw new PipelineError("bad_request", "This batch was stopped. Start a new batch for the remaining sets.");
+    if (!recovery && this.busy()) throw new PipelineError("busy", "Another set or batch is running.");
+    this.assertAvailable(id, { allowBatchQueue: recovery });
+    if (!b.admitted) { b.status = "initializing"; this.initializeBatch(b); }
+    for (const runId of b.refresh ? b.refresh.runIds : b.runIds) {
+      const r = this.store.getRun(runId);
+      if (!r || r.batchId !== b.id) throw new PipelineError("batch_integrity", "A saved set is missing from this batch. No new renders were submitted.");
+      if (b.refresh) continue; // this operation only refreshes saved images; never renders
+      this.recover(r);
+      if ((r.attempts || []).some((a) => a.state === "ambiguous")) {
+        r.status = "needs_decision"; this.save(r);
+        if (!b.cancelRequested) throw new PipelineError("ambiguous", "Set " + r.setNo + " has an unconfirmed render. Resolve that render before resuming the batch.");
+      }
+    }
+    return this.startBatch(b, { recovery });
+  }
+  cancelBatch(id) {
+    const b = this.store.getBatch(id);
+    if (!b) throw new PipelineError("not_found", "No such batch.");
+    if (["done", "cancelled"].includes(b.status)) return b;
+    b.cancelRequested = true;
+    if (!this.pending.has(id)) { b.status = "cancelled"; b.activeRunId = null; this.store.releaseBatchPlans(id); }
+    this.store.saveBatch(b); return b;
+  }
+  async processBatch(id) {
+    let b = this.store.getBatch(id);
+    try {
+      for (const runId of b.refresh ? b.refresh.runIds : b.runIds) {
+        b = this.store.getBatch(id);
+        if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Resume this batch in a minute.");
+        let r = this.store.getRun(runId);
+        if (!r || r.batchId !== id) throw new PipelineError("batch_integrity", "A saved set is missing from this batch. No new render was submitted.");
+        if (!b.refresh && r.status === "done") { this.store.releaseBatchPlans(id, runId); continue; }
+        // A stop request survives a restart. Finish/reconcile the already active child;
+        // checkSubmissionAllowed still forbids any new paid render for it.
+        if (b.cancelRequested && b.activeRunId !== runId) { b.status = "cancelled"; break; }
+        if (!b.refresh) this.recover(r);
+        if (!b.refresh && (r.attempts || []).some((a) => a.state === "ambiguous")) {
+          r.status = "needs_decision"; this.save(r);
+          throw new PipelineError("ambiguous", "Set " + r.setNo + " has an unconfirmed render. Resolve that render before continuing.");
+        }
+        b.status = "running"; b.activeRunId = runId; this.store.saveBatch(b);
+        this.pending.add(runId); this.active = runId;
+        try {
+          if (b.refresh) {
+            const c = this.cutouts.get(b.refresh.sha);
+            if (!c || c.revision !== b.refresh.revision) throw new PipelineError("stale_cutout", "The product cutout changed again. Review the current cutout before refreshing this batch.");
+            await this.refreshComposed(r, { expectedRevision: b.refresh.revision });
+          } else await this.process(runId);
+        } catch (e) {
+          if (b.refresh) { r.status = "failed"; r.error = { code: e.code || "error", message: e.message }; this.save(r); }
+          throw e;
+        } finally { this.pending.delete(runId); this.active = id; }
+        r = this.store.getRun(runId); b = this.store.getBatch(id);
+        if (b.cancelRequested) { b.status = "cancelled"; break; }
+        if (r.status !== "done") throw new PipelineError(r.error && r.error.code || "partial", "Set " + r.setNo + " stopped. " + (r.error && r.error.message || "Resume to finish the missing sizes."));
+        if (!b.refresh) this.store.releaseBatchPlans(id, runId);
+      }
+      if (b.refresh && b.status !== "cancelled") {
+        b.status = b.refresh.returnStatus; b.error = b.refresh.returnError;
+        b.cancelRequested = b.refresh.returnCancelRequested; b.refresh = null;
+      } else {
+        if (b.status !== "cancelled") b.status = "done";
+        this.store.releaseBatchPlans(id); b.error = null; b.refresh = null;
+      }
+    } catch (e) {
+      b = this.store.getBatch(id);
+      b.status = b.cancelRequested ? "cancelled" : "paused";
+      b.error = b.cancelRequested ? null : { code: e.code || "error", message: e.message };
+      if (b.cancelRequested) this.store.releaseBatchPlans(id);
+    }
+    b.activeRunId = null; this.store.saveBatch(b);
   }
 
   // ---------- the run ----------
@@ -253,7 +418,9 @@ export class Pipeline {
   // imports the URL itself; without a local copy the fidelity check reports an error (held).
   async stepSource(run) {
     const src = run.S.source || (run.S.source = {});
-    if (src.sha256 || src.fetchError || !run.S.url) return;
+    if (src.sha256 || !run.S.url) return;
+    // A transient source download failure is retryable when the set/batch is resumed.
+    delete src.fetchError;
     try {
       const r = await this.fetchSource(run.S.url, path.join(this.store.runDir(run.id), "source.img"));
       Object.assign(src, { file: "source.img", sha256: r.sha256, bytes: r.bytes, contentType: r.contentType || null });
@@ -310,6 +477,11 @@ export class Pipeline {
 
   // Send prepared attempts in one batch and classify every item of the answer.
   async submitAttempts(run, atts, allowRetry) {
+    try { this.checkSubmissionAllowed(run); }
+    catch (e) {
+      for (const a of atts) { a.state = "failed"; a.notSent = true; a.error = e.message; this.store.release(a.id); this.detach(run, a); }
+      this.save(run); throw e;
+    }
     for (const a of atts) { a.state = "submitting"; a.submittedAt = Date.now(); }
     this.save(run);
     for (const a of atts) this.event("render_submitted", run, this.item(run, a.kind), { attempt: a, provider: this.renderer.name, from: "prepared", to: "submitting", credits: a.credits });
@@ -700,6 +872,7 @@ export class Pipeline {
 
   // The ONE paid render of a composed set: the scene photograph, shared by all three sizes.
   async stepScene(run) {
+    if (!this.sceneRequired(run)) return this.noScene(run);
     const X = run.scene;
     if (X.url) return;
     X.state = "rendering"; X.error = null;
@@ -710,6 +883,7 @@ export class Pipeline {
   }
 
   async stepSceneFetch(run) {
+    if (!this.sceneRequired(run)) return this.noScene(run);
     const X = run.scene;
     if (X.file) return this.stepScenePrepare(run);
     const dir = this.store.runDir(run.id), raw = path.join(dir, "scene-v" + X.version + ".img");
@@ -753,6 +927,7 @@ export class Pipeline {
   // Vision check of the scene alone: no lettering, panels, faces or close-up devices. The ads' own
   // text, logo and product are set by the app, so they don't need a model to check them.
   async stepSceneQa(run) {
+    if (!this.sceneRequired(run)) return this.noScene(run);
     const X = run.scene;
     if (X.qa && ["pass", "fail", "uncertain", "off"].includes(X.qa.state) && X.qa.version === X.version) return;
     if (!this.llm) { X.qa = { state: "off", version: X.version }; this.save(run); return; }
@@ -774,6 +949,7 @@ export class Pipeline {
   }
 
   async stepVisibleSceneQa(run) {
+    if (!this.sceneRequired(run)) return this.noScene(run);
     const X = run.scene, q = X.qa;
     if (!this.llm || !q || (q.approved && q.scope !== "visible_scene") || !run.items.every((x) => x.file && x.output && x.output.ok)) return;
     if (!["fail", "uncertain"].includes(q.state) && q.scope !== "visible_scene") return;
@@ -801,7 +977,7 @@ export class Pipeline {
   async stepCompose(run, list) {
     if (!list.length) return;
     this.log(run, "Composing " + list.map((x) => x.dims).join(", ") + " — real product photo, brand type, CTA and logo…");
-    const product = imageUri(this.cutoutFile(run)), scene = imageUri(this.store.filePath(run.id, run.scene.file));
+    const product = imageUri(this.cutoutFile(run)), scene = this.sceneRequired(run) ? imageUri(this.store.filePath(run.id, run.scene.file)) : null;
     for (const x of list) {
       this.rememberDrive(run, x);
       const out = path.join(this.store.runDir(run.id), x.kind + "-v" + x.version + "-s" + run.scene.version + ".jpg");
@@ -825,6 +1001,7 @@ export class Pipeline {
   syncComposed(run) {
     if (!run.S.composed) return;
     for (const x of run.items) {
+      x.sceneRequired = this.sceneRequired(run);
       x.cutout = run.cutout ? { state: run.cutout.state, sha: run.cutout.sha, revision: run.cutout.revision } : null;
       x.sceneQa = run.scene && run.scene.qa ? { ...run.scene.qa } : null;
     }
@@ -832,10 +1009,11 @@ export class Pipeline {
 
   // Free recovery shared by approvals, rechecks and Drive saves. Persist the active
   // lifecycle before awaiting work, so a restart resumes any unfinished composition.
-  async refreshComposed(run, { recheckScene = false, kind = null } = {}) {
+  async refreshComposed(run, { recheckScene = false, kind = null, expectedRevision = null } = {}) {
     run.status = "running"; run.error = null; this.save(run);
     await this.stepCutout(run);
-    if (!run.scene || !run.scene.file) throw new PipelineError("scene_missing", "This set has no saved scene photo yet. Resume the set to continue.");
+    if (expectedRevision && run.cutout?.revision !== expectedRevision) throw new PipelineError("stale_cutout", "The cutout changed during refresh. Review its current pixels before using this set.");
+    if (this.sceneRequired(run) && (!run.scene || !run.scene.file)) throw new PipelineError("scene_missing", "This set has no saved scene photo yet. Resume the set to continue.");
     await this.stepSceneFetch(run);
     if (recheckScene) run.scene.qa = null;
     await this.stepSceneQa(run);
@@ -846,19 +1024,37 @@ export class Pipeline {
     this.save(run);
   }
 
+  queueBatchCutoutRefresh(run, revision) {
+    const b = run.batchId && this.store.getBatch(run.batchId);
+    if (!b) return null;
+    // Persist the free follow-up before returning from approval/upload. A restart finishes
+    // every saved sibling with the exact reviewed revision, without rendering another scene.
+    const targets = b.runIds.filter((runId) => {
+      const sibling = this.store.getRun(runId);
+      return sibling?.cutout?.sha === run.cutout.sha && (!this.sceneRequired(sibling) || sibling.scene?.file);
+    });
+    const previous = b.refresh || { returnStatus: b.status, returnError: b.error, returnCancelRequested: b.cancelRequested };
+    b.refresh = { sha: run.cutout.sha, revision, runIds: targets, returnStatus: previous.returnStatus, returnError: previous.returnError, returnCancelRequested: previous.returnCancelRequested };
+    b.status = "queued"; b.error = null; b.cancelRequested = false; this.store.saveBatch(b);
+    this.batchPending.add(b.id); return b;
+  }
+
   // A person checked the cutout against the product photo: approved once, for every set using it.
   async approveCutout(id, { actor, revision }) {
     const run = this.store.getRun(id);
     if (!run || !run.cutout || !run.cutout.sha || run.cutout.state === "failed") throw new PipelineError("bad_request", "This set has no product cutout to approve.");
     const current = this.cutouts.get(run.cutout.sha);
     if (!current || !revision || current.revision !== revision) throw new PipelineError("stale_cutout", "The cutout changed since this preview. Refresh and compare it again before approving.");
+    let refreshBatch = null;
     await this.enqueue(id, async () => {
       const r = this.store.getRun(id);
       await this.cutouts.approve(r.cutout.sha, actor, revision);
       this.log(r, "Product cutout approved.", "ok");
-      r.saveDrive = true;
-      await this.refreshComposed(r);
+      r.saveDrive = true; this.save(r);
+      refreshBatch = this.queueBatchCutoutRefresh(r, revision);
+      if (!refreshBatch) await this.refreshComposed(r, { expectedRevision: revision });
     });
+    if (refreshBatch) { this.startBatch(refreshBatch); await this.idle(); }
     return this.store.getRun(id);
   }
   // A person supplies their own cutout PNG: it replaces the automatic one, and the set is
@@ -869,14 +1065,24 @@ export class Pipeline {
     if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is busy. Try again when it stops.");
     const sha = run.cutout && run.cutout.sha;
     if (!sha) throw new PipelineError("bad_request", "This set hasn't got as far as the product photo yet.");
+    let refreshBatch = null;
     await this.enqueue(id, async () => {
       const r = this.store.getRun(id);
-      try { await this.cutouts.upload(sha, png, { python: this.cfg.python, actor }); }
+      let uploaded;
+      try { uploaded = await this.cutouts.upload(sha, png, { python: this.cfg.python, actor }); }
       catch (e) { throw new PipelineError("bad_request", e.message); }
       this.log(r, "Product cutout replaced with an uploaded PNG.", "ok");
-      r.status = "running"; r.error = null; this.save(r);
-      await this.processComposed(r);
+      refreshBatch = this.queueBatchCutoutRefresh(r, uploaded.revision);
+      if (!refreshBatch) {
+        r.status = "running"; r.error = null; this.save(r);
+        await this.processComposed(r);
+      } else if (!refreshBatch.refresh.runIds.includes(id)) {
+        // Updating the shared cutout must not restart a paused/cancelled batch's paid work.
+        await this.stepCutout(r);
+        this.log(r, refreshBatch.refresh.returnStatus === "cancelled" ? "Cutout saved. Start a new set to render a scene; this batch remains stopped." : "Cutout saved. Resume the batch to render any remaining scenes.", "ok");
+      }
     }, { preserveOnError: ["bad_request"] });
+    if (refreshBatch) { this.startBatch(refreshBatch); await this.idle(); }
     return this.store.getRun(id);
   }
   approveScene(id, { note, actor }) {
@@ -925,6 +1131,7 @@ export class Pipeline {
     this.assertAvailable(id);
     const run = this.store.getRun(id);
     if (!run) throw new PipelineError("not_found", "No such set.");
+    if (run.S.composed && !this.sceneRequired(run)) throw new PipelineError("bad_request", "This graphic has no scene to regenerate. Use Re-compose to refresh it, or choose a photo background for a new scene.");
     if (kind === "master" || run.S.composed) {
       // A new square (or, for composed sets, a new scene) means a new set: same settings, next folder.
       // A new square means a new set: same settings, next "(set n)" folder.
@@ -967,7 +1174,7 @@ export class Pipeline {
       const r = this.store.getRun(id);
       if (r.S.composed) {
         // Re-compose every size from the stored scene and cutout (0 credits).
-        if (!r.scene || !r.scene.file) return;
+        if (this.sceneRequired(r) && (!r.scene || !r.scene.file)) return;
         r.status = "running"; this.save(r);
         await this.stepCutout(r);
         await this.stepSceneFetch(r);

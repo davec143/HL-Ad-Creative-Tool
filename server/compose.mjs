@@ -14,7 +14,7 @@ const ENCODE = path.join(ROOT, "finishing", "encode.py");
 const SHA = /^[0-9a-f]{64}$/;
 // Cutout method version (finishing/cutout.py ALGO). An automatic cutout made by an older method and
 // not yet approved is redone; approved and uploaded cutouts are never touched.
-export const CUTOUT_ALGO = 3;
+export const CUTOUT_ALGO = 4;
 export const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 const cutoutLocks = new Map(); // one replica; shared by every store instance in this process
 const unique = () => process.pid + "." + crypto.randomBytes(8).toString("hex");
@@ -46,12 +46,13 @@ export class CutoutStore {
   }
   // Make (or reuse) the cutout for a product photo. Never throws for a bad photo: returns
   // {state: "failed", error} so the caller can say why before any credits are spent.
-  async ensure(srcFile, { python, model }) {
+  async ensure(srcFile, { python, model, snapshot = false }) {
     const buf = fs.readFileSync(srcFile), sha = sha256(buf);
     return this.locked(sha, async () => {
       const have = this.get(sha);
+      const result = (meta) => snapshot ? { ...meta, png: fs.readFileSync(this.png(sha)) } : meta;
       if (!fs.existsSync(this.photo(sha))) { const t = this.photo(sha) + "." + unique() + ".tmp"; fs.writeFileSync(t, buf); fs.renameSync(t, this.photo(sha)); }
-      if (have && !(have.state === "auto" && (have.algo || 1) < CUTOUT_ALGO)) return have;
+      if (have && !(have.state === "auto" && (have.algo || 1) < CUTOUT_ALGO)) return result(have);
       const out = this.png(sha), tmp = out + "." + unique() + ".tmp.png";
       let r;
       try {
@@ -61,7 +62,7 @@ export class CutoutStore {
       if (!r || !r.ok) { try { fs.unlinkSync(tmp); } catch { /* none */ } return { sha, state: "failed", error: (r && r.error) || "Background removal returned nothing." }; }
       fs.renameSync(tmp, out);
       // A supplied PNG that already had transparency counts as a person's cutout.
-      return this.put(sha, { state: r.source === "supplied" ? "uploaded" : "auto", source: r.source, width: r.width, height: r.height, coverage: r.coverage, algo: r.algo || 1, refined: r.refined || 0 });
+      return result(this.put(sha, { state: r.source === "supplied" ? "uploaded" : "auto", source: r.source, width: r.width, height: r.height, coverage: r.coverage, algo: r.algo || 1, refined: r.refined || 0 }));
     });
   }
   async approve(sha, actor, revision) {

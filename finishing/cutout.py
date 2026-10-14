@@ -31,7 +31,7 @@ MODEL_DEFAULT = os.environ.get("CUTOUT_MODEL", "/opt/models/isnet-general-use.on
 SIZE = 1024
 MIN_COVER, MAX_COVER = 0.02, 0.97  # share of the frame the product may plausibly fill
 PAD = 0.03
-ALGO = 3  # bump when the cutout method changes: unapproved automatic cutouts are redone
+ALGO = 4  # bump when the cutout method changes: unapproved automatic cutouts are redone
 
 
 def existing_alpha(im):
@@ -104,7 +104,10 @@ def studio_repair(rgb, alpha, base):
     if med.min() < 240 or med.max() - med.min() > 8 or spread > 4:
         return base
     h, w = alpha.shape
-    near = np.abs(rgb.astype(float) - med).max(2) <= max(8, spread * 2)
+    distance = np.abs(rgb.astype(float) - med).max(2)
+    # Keep faint photographic outlines. A wide tolerance can connect the white
+    # face of a box to the outside after downsampling or JPEG compression.
+    near = distance <= max(4, spread * 2)
     border = np.concatenate([near[0], near[-1], near[:, 0], near[:, -1]])
     if border.mean() < .60:
         return base
@@ -122,8 +125,31 @@ def studio_repair(rgb, alpha, base):
         comp &= retained
         colorful = np.mean(chroma[comp] > 64) >= .05
         if colorful:
+            # A coherent, model-confirmed annulus is a reel/ring, not damaged
+            # rectangular packaging. Keep its large centered opening; neither a
+            # white logo nor a rectangular printed panel meets this geometry.
+            extent = pixels.max(0) - pixels.min(0) + 1
+            fill = len(pixels) / np.prod(extent)
+            round_opening = np.zeros_like(comp)
+            if .65 < fill < .87 and extent.min() / extent.max() > .65:
+                for opening in components(scaled(near & comp & (alpha < 32)) > 0):
+                    shape = opening.max(0) - opening.min(0) + 1
+                    fraction = len(opening) / len(pixels)
+                    centered = np.max(np.abs(opening.mean(0) - pixels.mean(0)) / extent) < .08
+                    if not (.08 < fraction < .65 and shape.min() / shape.max() > .65 and
+                            .65 < len(opening) / np.prod(shape) < .9 and centered):
+                        continue
+                    mask = np.zeros((512, 512), np.uint8)
+                    mask[opening[:, 1], opening[:, 0]] = 255
+                    hole = np.asarray(Image.fromarray(mask).resize((w, h), Image.Resampling.NEAREST)) > 0
+                    shell = comp & ~hole
+                    if shell.any() and np.mean(alpha[shell] > 240) > .95:
+                        round_opening |= hole & near & (alpha < 32)
             # Broad missing regions indicate package artwork rejection; leave ordinary holes alone.
-            if np.mean(alpha[comp] < 32) < .20:
+            # Resizing changes model confidence: damaged printing may be faint
+            # rather than completely absent. Large pale regions count as damage
+            # too; a small real hole alone still does not trigger box repair.
+            if np.mean(alpha[comp] < 64) < .20 and np.mean((alpha[comp] < 220) & near[comp]) < .20:
                 continue
             ys, xs = np.where(comp)
             y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
@@ -144,17 +170,22 @@ def studio_repair(rgb, alpha, base):
                         keep &= ~shadow
                         out[comp & shadow] = 0
             out[keep] = 255
+            out[round_opening] = 0
         else:
             # Solid neutral hardware: keep its white body, use model support to exclude reflections.
+            # Model-confirmed openings stay open even when too large or narrow
+            # for the small mounting-hole detector. Allow mild JPEG ringing.
+            known_opening = (distance <= 32) & (alpha < 32) & comp
             for x in range(w):
                 yy = np.where(comp[:, x] & (alpha[:, x] > 240))[0]
                 if len(yy):
                     support = comp[:, x] & (np.arange(h) <= yy.max() + 2) & (np.arange(h) >= yy.min() - 2)
-                    out[support, x] = 255
+                    out[support & ~known_opening[:, x], x] = 255
             for hole in components(scaled(near & comp) > 0):
                 wh = hole.max(0) - hole.min(0) + 1
                 # Only compact openings with a dark rim; elongated seams/embossed letters are solid.
-                if len(hole) < 26 or len(hole) > len(pixels) * .02 or wh.min() / wh.max() < .25:
+                if (len(hole) < 16 or len(hole) > len(pixels) * .02 or
+                        wh.min() / wh.max() < .25 or len(hole) / np.prod(wh) < .55):
                     continue
                 hm = np.zeros((512, 512), np.uint8)
                 hm[hole[:, 1], hole[:, 0]] = 255
@@ -162,6 +193,7 @@ def studio_repair(rgb, alpha, base):
                 rim = hm & ~near & comp
                 if rim.sum() and np.median(rgb[rim].min(1)) < 220:
                     out[hm & near & comp] = 0
+            out[known_opening] = 0
     # Colour alone cannot distinguish a white object edge from its white backdrop.
     # Preserve confident model foreground when the photographic boundary is ambiguous.
     out[~retained & (alpha < 220)] = 0

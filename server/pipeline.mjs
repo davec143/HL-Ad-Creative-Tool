@@ -167,9 +167,12 @@ export class Pipeline {
 
   // Serialize all work: one run (or regeneration) at a time, like v16's busy lock. A run that is
   // already queued or active can't be queued again (double-clicked Resume, two tabs...).
-  enqueue(id, fn, { preserveOnError = [] } = {}) {
+  assertAvailable(id) {
     if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is already queued or running.");
     if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Try again in a minute.");
+  }
+  enqueue(id, fn, { preserveOnError = [] } = {}) {
+    this.assertAvailable(id);
     this.pending.add(id);
     const p = this.queue.then(async () => {
       this.active = id;
@@ -189,11 +192,12 @@ export class Pipeline {
   busy() { return this.active || this.pending.values().next().value || null; }
   idle() { return this.queue; }
 
-  start(run) { run.status = "queued"; this.save(run); this.enqueue(run.id, () => this.process(run.id)); return run; }
+  start(run) { this.assertAvailable(run.id); run.status = "queued"; this.save(run); this.enqueue(run.id, () => this.process(run.id)); return run; }
   resume(id) {
     const run = this.store.getRun(id);
     if (!run) throw new PipelineError("not_found", "No such set.");
     if (this.pending.has(id)) return run; // already on its way: a second click does nothing
+    this.assertAvailable(id);
     const amb = (run.attempts || []).filter((a) => a.state === "ambiguous");
     if (amb.length) throw new PipelineError("ambiguous", "A render's outcome is unknown. Decide what to do with it first (adopt the job, re-render, or skip).");
     run.status = "queued"; run.error = null; this.save(run);
@@ -203,7 +207,13 @@ export class Pipeline {
   }
   // On boot: pick up anything that was mid-flight when the server stopped.
   resumeInterrupted() {
-    for (const r of this.store.listRuns(50)) if (r.status === "running" || r.status === "queued") this.resume(r.id);
+    for (const r of this.store.listRuns(Infinity)) if (r.status === "running" || r.status === "queued") {
+      // A crash can land between persisting an ambiguous attempt and the final
+      // run status. Preserve the decision gate while allowing other runs to recover.
+      if ((r.attempts || []).some((a) => a.state === "ambiguous")) {
+        r.status = "needs_decision"; r.error = { code: "ambiguous", message: "A render's outcome is unknown. Decide what to do with it before resuming." }; this.save(r);
+      } else this.resume(r.id);
+    }
   }
 
   // ---------- the run ----------
@@ -368,7 +378,7 @@ export class Pipeline {
   }
   // action: "adopt" {jobId} | "retry" {charged} | "skip" {charged}. Recorded on the attempt.
   resolve(id, attemptId, { action, jobId, charged, actor }) {
-    if (this.pending.has(id)) throw new PipelineError("already_queued", "This set is busy. Try again when it stops.");
+    this.assertAvailable(id);
     const run = this.store.getRun(id), a = run && this.attempt(run, attemptId);
     if (!a || a.state !== "ambiguous") throw new PipelineError("bad_request", "That render isn't waiting for a decision.");
     const x = this.item(run, a.kind);
@@ -523,6 +533,7 @@ export class Pipeline {
   }
   // A person compared an "uncertain" result with the product photo and approves it.
   approveFidelity(id, kind, { note, actor }) {
+    this.assertAvailable(id);
     const run = this.store.getRun(id), x = run && this.item(run, kind);
     if (!x || !x.fidelity || x.fidelity.state !== "uncertain") throw new PipelineError("bad_request", "Only an uncertain product check can be approved.");
     x.fidelity.approved = { at: Date.now(), actor: actor || null, note: String(note || "").slice(0, 300), version: x.version };
@@ -558,18 +569,42 @@ export class Pipeline {
       }
       for (const x of go) {
         const name = fileName(x);
+        const bytes = fs.readFileSync(this.store.filePath(run.id, x.file));
+        const sha = sha256(bytes), md5 = crypto.createHash("md5").update(bytes).digest("hex");
+        const previous = x.drivePrevious;
+        let targetId = previous && previous.name === name && previous.version === x.version && previous.folderId === run.folder.id ? previous.id : null;
+        // A cutout may change while the first upload's outcome is unknown. Resolve
+        // those exact earlier bytes before replacing them, never a same-name guess.
+        const earlier = x.drivePending;
+        if (!targetId && earlier && earlier.name === name && earlier.version === x.version && earlier.folderId === run.folder.id) {
+          targetId = earlier.targetId || null;
+          if (!targetId && earlier.md5 && this.drive.findByName) {
+            const found = await this.drive.findByName(run.folder.id, name, false, { createdAfter: earlier.at - 60000, md5Checksum: earlier.md5 });
+            if (found) targetId = found.id;
+          }
+        }
+        const unresolvedWrite = [x.driveUpload, earlier].some((pending) => pending && pending.state === "uploading" && pending.name === name && (!pending.version || pending.version === x.version) && (!pending.folderId || pending.folderId === run.folder.id) && (!pending.targetId || pending.targetId === targetId));
+        if (targetId && previous && previous.id === targetId && previous.sha256 === sha && !unresolvedWrite) {
+          x.drive = { ...previous, sha256: sha }; x.held = false; x.driveUpload = { state: "done", name, sha256: sha, version: x.version, folderId: run.folder.id, at: Date.now(), reused: true }; this.save(run); continue;
+        }
         // An upload whose outcome is unknown (crash mid-call): look before uploading again.
         if (x.driveUpload && x.driveUpload.state === "uploading" && x.driveUpload.name === name && this.drive.findByName) {
-          const found = await this.drive.findByName(run.folder.id, name);
-          if (found) { x.drive = { id: found.id, name }; x.driveUpload = { state: "done", name, at: Date.now(), reconciled: true }; this.save(run); continue; }
+          const pending = x.driveUpload;
+          const sameOutput = (!pending.sha256 || pending.sha256 === sha) && (!pending.folderId || pending.folderId === run.folder.id) && (!pending.version || pending.version === x.version);
+          if (sameOutput) {
+            if (pending.targetId) targetId = pending.targetId;
+            const found = await this.drive.findByName(run.folder.id, name, false, { createdAfter: targetId ? undefined : pending.at - 60000, md5Checksum: md5 });
+            if (found && (!targetId || found.id === targetId)) { x.drive = { id: found.id, name, sha256: sha, version: x.version, folderId: run.folder.id }; x.drivePrevious = null; x.drivePending = null; x.held = false; x.driveUpload = { state: "done", name, sha256: sha, at: Date.now(), reconciled: true }; this.save(run); continue; }
+          }
         }
-        x.driveUpload = { state: "uploading", name, at: Date.now() }; this.save(run);
-        const f = await this.drive.uploadJpeg(run.folder.id, name, fs.readFileSync(this.store.filePath(run.id, x.file)));
-        x.drive = { id: f.id, name }; x.held = false; x.driveUpload = { state: "done", name, at: Date.now() };
+        x.driveUpload = { state: "uploading", name, sha256: sha, md5, version: x.version, folderId: run.folder.id, targetId, at: Date.now() }; this.save(run);
+        const f = await this.drive.uploadJpeg(run.folder.id, name, bytes, { fileId: targetId });
+        x.drive = { id: f.id, name, sha256: sha, version: x.version, folderId: run.folder.id }; x.drivePrevious = null; x.drivePending = null; x.held = false; x.driveUpload = { state: "done", name, sha256: sha, at: Date.now() };
         this.event("drive_uploaded", run, x);
         this.log(run, "  " + name + " saved to Drive.", "ok");
         this.save(run);
       }
+      run.driveError = null;
     } catch (e) {
       run.driveError = e.message;
       this.log(run, "Drive save failed — " + e.message, "err");
@@ -607,9 +642,14 @@ export class Pipeline {
 
   cutoutFile(run) { return this.store.filePath(run.id, "cutout.png"); }
 
+  rememberDrive(run, x) {
+    if (x.drive && x.drive.id && run.folder) x.drivePrevious = { ...x.drive, version: x.version, folderId: run.folder.id, sha256: x.drive.sha256 || (x.output && x.output.sha256) || null };
+    if (x.driveUpload && x.driveUpload.state === "uploading" && x.driveUpload.sha256) x.drivePending = { ...x.driveUpload };
+  }
+
   invalidateCutoutOutputs(run) {
     run.preflight = null;
-    for (const x of run.items) Object.assign(x, { file: null, output: null, drive: null, driveUpload: null, override: null, sceneQa: null, state: "waiting", held: true, error: null });
+    for (const x of run.items) { this.rememberDrive(run, x); Object.assign(x, { file: null, output: null, drive: null, driveUpload: null, override: null, sceneQa: null, state: "waiting", held: true, error: null }); }
     // A finished-background verdict/approval belongs to those exact output pixels.
     if (run.scene && run.scene.qa && run.scene.qa.scope === "visible_scene") run.scene.qa = run.scene.qa.sourceCheck || null;
   }
@@ -621,7 +661,7 @@ export class Pipeline {
   async stepCutout(run) {
     const fresh = !(run.cutout && run.cutout.sha);
     if (fresh) this.log(run, "Cutting the product out of its photo…");
-    const c = await this.cutouts.ensure(this.store.filePath(run.id, run.S.source.file), { python: this.cfg.python, model: this.cfg.cutoutModel });
+    const c = await this.cutouts.ensure(this.store.filePath(run.id, run.S.source.file), { python: this.cfg.python, model: this.cfg.cutoutModel, snapshot: true });
     let previousRevision = null;
     try { previousRevision = sha256(fs.readFileSync(this.cutoutFile(run))); } catch { /* first use */ }
     const same = c.state !== "failed" && previousRevision === c.revision;
@@ -632,7 +672,7 @@ export class Pipeline {
       this.save(run);
       throw new PipelineError("cutout", "Couldn't cut the product out of its photo: " + c.error + ". Upload a PNG of the product with a transparent background, then press Resume. Nothing was rendered or charged.");
     }
-    fs.copyFileSync(this.cutouts.png(c.sha), this.cutoutFile(run));
+    fs.writeFileSync(this.cutoutFile(run), c.png);
     this.log(run, cutoutApproved(c) ? "Using the approved product cutout." : "Product cut out of its photo. Check it once (Approve cutout) — sets with this product are held until it's approved.", cutoutApproved(c) ? "ok" : "run");
     this.save(run);
     return true;
@@ -701,7 +741,7 @@ export class Pipeline {
         X.originalFile = original; X.file = path.basename(prepared); X.preview = path.basename(thumb);
         X.qa = null;
         // Any previous files/checks/overrides refer to the untrimmed scene.
-        for (const x of run.items) { x.file = null; x.output = null; x.drive = null; x.override = null; x.sceneQa = null; x.state = "waiting"; }
+        for (const x of run.items) { this.rememberDrive(run, x); x.file = null; x.output = null; x.drive = null; x.override = null; x.sceneQa = null; x.state = "waiting"; }
         this.log(run, "Removed plain white margins from the existing scene photo (0 Higgsfield credits). Rechecking the cropped photo before delivery.", "ok");
       }
       X.preparation = r;
@@ -763,6 +803,7 @@ export class Pipeline {
     this.log(run, "Composing " + list.map((x) => x.dims).join(", ") + " — real product photo, brand type, CTA and logo…");
     const product = imageUri(this.cutoutFile(run)), scene = imageUri(this.store.filePath(run.id, run.scene.file));
     for (const x of list) {
+      this.rememberDrive(run, x);
       const out = path.join(this.store.runDir(run.id), x.kind + "-v" + x.version + "-s" + run.scene.version + ".jpg");
       x.state = "finishing"; x.sceneQa = null; this.save(run);
       try {
@@ -839,6 +880,7 @@ export class Pipeline {
     return this.store.getRun(id);
   }
   approveScene(id, { note, actor }) {
+    this.assertAvailable(id);
     const run = this.store.getRun(id), q = run && run.scene && run.scene.qa;
     if (!q || q.state !== "uncertain" || q.approved) throw new PipelineError("bad_request", "Only an uncertain scene check that hasn't been approved yet can be approved.");
     q.approved = { at: Date.now(), actor: actor || null, note: String(note || "").slice(0, 300), version: q.version };
@@ -860,11 +902,11 @@ export class Pipeline {
     try {
       try { await this.fetchSource(picked.url, src); }
       catch (e) { throw new PipelineError("bad_request", "Couldn't download the product photo: " + e.message); }
-      c = await this.cutouts.ensure(src, { python: this.cfg.python, model: this.cfg.cutoutModel });
+      c = await this.cutouts.ensure(src, { python: this.cfg.python, model: this.cfg.cutoutModel, snapshot: true });
     } finally { try { fs.unlinkSync(src); } catch { /* none */ } }
     const cutout = { sha: c.sha, state: c.state, error: c.error || null, revision: c.revision || null };
     if (c.state === "failed") return { cutout, sizes: [] };
-    const product = imageUri(this.cutouts.png(c.sha)), sizes = [];
+    const product = "data:image/png;base64," + c.png.toString("base64"), sizes = [];
     for (const kind of KINDS) {
       const spec = layoutFor(form.tpl, kind, form);
       try {
@@ -880,6 +922,7 @@ export class Pipeline {
 
   // ---------- actions on a finished set ----------
   regenerate(id, kind) {
+    this.assertAvailable(id);
     const run = this.store.getRun(id);
     if (!run) throw new PipelineError("not_found", "No such set.");
     if (kind === "master" || run.S.composed) {
@@ -979,6 +1022,7 @@ export class Pipeline {
   }
   // "Save anyway": a person accepts one held file as it is. Recorded, then delivered (only it).
   override(id, kind, { reason, actor }) {
+    this.assertAvailable(id);
     const run = this.store.getRun(id);
     if (!run) throw new PipelineError("not_found", "No such set.");
     const x = this.item(run, kind);

@@ -78,6 +78,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   const sessionName = https ? "__Host-hlab" : "hlab";
   const sessions = cfg.appPassword ? new Sessions({ store, secret: cfg.sessionSecret, ttlMs: cfg.sessionDays * 24 * 3600 * 1000 }) : null;
   const limiter = new LoginLimiter();
+  let startingRun = false; // reserve admission before any provider await (two tabs/double clicks)
   const clientOf = (req) => {
     if (cfg.trustProxy && req.headers["x-forwarded-for"]) return String(req.headers["x-forwarded-for"]).split(",").pop().trim();
     return req.socket.remoteAddress || "?";
@@ -187,17 +188,22 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       if (b.picked && b.picked.url && !picked.url) throw new HttpError(400, picked.urlError, "bad_url");
       const bad = validateForGenerate(form, { hasImage: !!picked.url });
       if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
-      if (pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
+      if (startingRun || pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
       if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
-      const need = (pipeline.isComposed(form.tpl) ? 1 : 3) * cfg.creditsPerRender;
-      const st = await renderer.status();
-      if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first (see the banner at the top).", "needs_auth");
-      if (!st.connected) throw new HttpError(502, "Higgsfield isn't reachable right now. " + (st.error || ""), "renderer_down");
-      let bal = null; try { bal = await renderer.balance(); } catch { bal = null; }
-      if (bal != null && bal < need) throw new HttpError(402, `A set needs ${need} Higgsfield credits and the balance is ${bal}. Top up Higgsfield, then generate again.`, "credits");
-      if (store.creditsToday() + need > cfg.maxCreditsPerDay) throw new HttpError(429, `Today's credit cap (${cfg.maxCreditsPerDay}) would be passed. It resets at midnight UTC.`, "credit_cap");
-      const run = pipeline.start(pipeline.create({ form, picked, saveDrive: b.saveDrive !== false }));
-      send(res, 201, { run: publicRun(run, PR) });
+      startingRun = true;
+      try {
+        const need = (pipeline.isComposed(form.tpl) ? 1 : 3) * cfg.creditsPerRender;
+        const st = await renderer.status();
+        if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first (see the banner at the top).", "needs_auth");
+        if (!st.connected) throw new HttpError(502, "Higgsfield isn't reachable right now. " + (st.error || ""), "renderer_down");
+        let bal = null; try { bal = await renderer.balance(); } catch { bal = null; }
+        if (bal != null && bal < need) throw new HttpError(402, `A set needs ${need} Higgsfield credits and the balance is ${bal}. Top up Higgsfield, then generate again.`, "credits");
+        if (store.creditsToday() + need > cfg.maxCreditsPerDay) throw new HttpError(429, `Today's credit cap (${cfg.maxCreditsPerDay}) would be passed. It resets at midnight UTC.`, "credit_cap");
+        if (pipeline.busy()) throw new HttpError(409, "A set is already running. Wait for it to finish.", "busy");
+        if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
+        const run = pipeline.start(pipeline.create({ form, picked, saveDrive: b.saveDrive !== false }));
+        send(res, 201, { run: publicRun(run, PR) });
+      } finally { startingRun = false; }
     }],
 
     ["GET", /^\/api\/runs\/([a-z0-9]+)$/, async (req, res, m) => { send(res, 200, { run: publicRun(runOr404(m[1]), PR), busy: pipeline.busy() }); }],

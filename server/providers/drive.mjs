@@ -47,12 +47,17 @@ export class Drive {
   }
   // Look up an existing file/folder by exact name under a parent (lookup-before-create, and
   // reconciling an upload whose outcome is unknown after a crash).
-  async findByName(parentId, name, folder = false, { createdAfter } = {}) {
+  async findByName(parentId, name, folder = false, { createdAfter, md5Checksum } = {}) {
     const q = [`name = '${String(name).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`, `'${parentId}' in parents`, "trashed = false", folder ? "mimeType = 'application/vnd.google-apps.folder'" : "mimeType != 'application/vnd.google-apps.folder'"]
       .concat(createdAfter ? [`createdTime > '${new Date(createdAfter).toISOString()}'`] : []).join(" and ");
-    const j = await this.api(API + "?supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=2&fields=files(id,webViewLink)&q=" + encodeURIComponent(q), { method: "GET" });
-    const f = (j.files || [])[0];
-    return f ? { id: f.id, url: f.webViewLink || (folder ? "https://drive.google.com/drive/folders/" + f.id : "") } : null;
+    let pageToken = null;
+    do {
+      const j = await this.api(API + "?supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=100&fields=nextPageToken,files(id,webViewLink,md5Checksum)&q=" + encodeURIComponent(q) + (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""), { method: "GET" });
+      const f = (j.files || []).find((file) => !md5Checksum || file.md5Checksum === md5Checksum);
+      if (f) return { id: f.id, md5Checksum: f.md5Checksum || null, url: f.webViewLink || (folder ? "https://drive.google.com/drive/folders/" + f.id : "") };
+      pageToken = j.nextPageToken;
+    } while (pageToken && md5Checksum);
+    return null;
   }
 
   async createFolder(name) {
@@ -62,15 +67,15 @@ export class Drive {
     });
     return { id: j.id, url: j.webViewLink || "https://drive.google.com/drive/folders/" + j.id };
   }
-  async uploadJpeg(folderId, name, bytes) {
+  async uploadJpeg(folderId, name, bytes, { fileId = null } = {}) {
     const boundary = "hl" + crypto.randomBytes(8).toString("hex");
-    const meta = JSON.stringify({ name, parents: [folderId], mimeType: "image/jpeg" });
+    const meta = JSON.stringify({ name, ...(fileId ? {} : { parents: [folderId] }), mimeType: "image/jpeg" });
     const body = Buffer.concat([
       Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: image/jpeg\r\n\r\n`),
       bytes, Buffer.from(`\r\n--${boundary}--`),
     ]);
-    const j = await this.api(UPLOAD + "?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink", {
-      method: "POST", headers: { "Content-Type": "multipart/related; boundary=" + boundary }, body,
+    const j = await this.api(UPLOAD + (fileId ? "/" + encodeURIComponent(fileId) : "") + "?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink", {
+      method: fileId ? "PATCH" : "POST", headers: { "Content-Type": "multipart/related; boundary=" + boundary }, body,
     });
     return { id: j.id, url: j.webViewLink || "" };
   }

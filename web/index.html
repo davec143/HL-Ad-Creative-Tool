@@ -12,7 +12,7 @@
 <header class="mast"><div class="mast-in">
   <div>
     <h1>HitLights Ad Builder</h1>
-    <p>Pick a product, write the message, choose a layout, and generate up to five distinct scenes — each in three placement sizes.</p>
+    <p>Pick a product, write the message, and generate up to five different template designs — each in three placement sizes.</p>
   </div>
   <span class="badge">1080×1080 · 1080×1920 · 1200×628</span>
   <button class="btn-quiet" id="logout" type="button" hidden>Sign out</button>
@@ -141,20 +141,30 @@
             <input type="checkbox" id="saveDrive" checked>
             <span><b>Also</b> save to Google Drive — a new dated folder per set. Only files that pass every check are saved. Either way the three finished files appear under Output with download buttons.</span>
           </label>
+          <div class="two batchoptions">
+            <div class="f">
+              <label for="setCount">Number of sets</label>
+              <select id="setCount">
+                <option value="1">1 set · 3 files</option><option value="2">2 sets · 6 files</option>
+                <option value="3">3 sets · 9 files</option><option value="4">4 sets · 12 files</option>
+                <option value="5">5 sets · 15 files</option>
+              </select>
+            </div>
+            <div class="f" id="templateModeWrap">
+              <label for="templateMode">Templates across sets</label>
+              <select id="templateMode">
+                <option value="different" selected>Different templates</option>
+                <option value="same">Same template</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint" id="setCountHint">Each set uses a different template. Your product and message stay the same.</p>
+          <div id="templatePlan" class="templateplan" aria-live="polite" hidden></div>
           <div class="rowbtn" id="previewRow" hidden>
             <button class="btn-quiet" id="previewBtn" type="button">Preview free (0 credits)</button>
-            <span class="hint">The real product, your copy and the logo, laid out at all three sizes with a placeholder photo.</span>
+            <span class="hint">Check every planned template in all three sizes, with your real product and a placeholder room photo.</span>
           </div>
           <div id="preview" hidden></div>
-          <div class="f">
-            <label for="setCount">Number of sets</label>
-            <select id="setCount">
-              <option value="1">1 set · 3 files</option><option value="2">2 sets · 6 files</option>
-              <option value="3">3 sets · 9 files</option><option value="4">4 sets · 12 files</option>
-              <option value="5">5 sets · 15 files</option>
-            </select>
-            <p class="hint" id="setCountHint">Each set gets a different scene. Your product, copy and chosen layout stay consistent across every set and size.</p>
-          </div>
           <button class="btn-gold" id="go">Generate 1 set · 3 files</button>
           <p id="cost"></p>
           <p class="bhint" id="howComposed" hidden>Higgsfield renders <em>one distinct scene per set</em>. The app then builds all three sizes from your template: the real product photo (background removed), your exact copy in Montserrat, the gold CTA and the real logo, so nothing is redrawn or misspelled. The copy is checked to fit before any credits are spent; the scene photo is checked for stray text, panels or faces.</p>
@@ -206,7 +216,7 @@
             <li><p><b>Choose the template first.</b> The library includes the six October reference designs in all three sizes. Scene placement can follow the reference, fill the background, or use a large photo panel. The template sets which fields apply and their length limits. <em>T1 Collage Hero</em>: always-on brand for pros and installers. <em>T2 Speech-Bubble Hero</em>: B2B and contractor prospecting. <em>T3 Discount Deadline</em>: sales and deadlines — you write the offer and the deadline yourself. <em>T4 Styled Room Hero</em>: lifestyle for homeowners, no job-site imagery. <em>T5 Glow Room Hero</em>: the “Built For Professionals” look.</p></li>
             <li><p><b>Write the message, or have it drafted.</b> Type the angle and press <em>Write it for me</em> — it reads the product listing and fills everything in for you to edit. Proof points must carry real figures from the product sheet; if a number isn't documented, leave it out.</p></li>
             <li><p><b>Describe the scene.</b> One concrete sentence about the room and where the LED light falls. Leave people, hands and devices out: the real product is added from its own photo.</p></li>
-            <li><p><b>Preview, then generate.</b> Preview checks your copy and layout for free. Choose one to five sets. Each composed set uses a distinct scene render for all three sizes; the current credit estimate appears above Generate. You can close the tab — the batch keeps going and appears under Recent batches. Stop after the current set to cancel the remaining queue.</p></li>
+            <li><p><b>Preview, then generate.</b> Choose one to five sets. Different templates starts with your selected design and uses a different compatible template for each following set, keeping your product and message. Choose Same template to vary just the scene. Preview checks every planned design in all three sizes for free. Photo layouts use one scene render per set; graphic layouts need none. The credit estimate appears above Generate. You can close the tab — the batch keeps going and appears under Recent batches. Stop after the current set to cancel the remaining queue.</p></li>
             <li><p><b>Read the checks on each file.</b> Compare the cutout with the original product photo and approve it once, or upload your own PNG. For scene margins, use <em>Repair margins and recheck</em> or <em>Re-compose</em> to reuse the existing render at no Higgsfield cost. Other scene defects may need a new scene. Files stay held until their checks pass.</p></li>
             <li><p><b>Take the finished files.</b> Download each size, one set, or all ready files from a batch as a zip. Held files are excluded from the batch zip. With Drive on, clean files are also filed in a folder named <em>date + product</em>. The <em>raw render</em> links are the generator's own output before cropping and the logo — never upload those to Ads Manager.</p></li>
           </ol>

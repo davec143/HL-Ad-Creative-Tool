@@ -421,3 +421,96 @@ test("renderer status outages leave free tooling and the effective template list
     assert.equal(body.balance, null);
   });
 });
+
+test("mixed batches freeze five different templates and reserve only the four paid scenes", async () => {
+  const a = setup({ cfg: { maxCreditsPerDay: 8, maxCreditsPerRun: 2 } });
+  const form = { ...FORM, ...SAMPLE.t6, tpl: "t6", sceneLayout: "template" };
+  const b = a.pipeline.createBatch({ ...INPUT, form, templateMode: "different" });
+  assert.equal(b.estimatedCredits, 8); assert.equal(b.perSet, null); assert.equal(a.store.creditsToday(), 8);
+  assert.equal(new Set(b.templatePlans.map(p => p.tpl)).size, 5); assert.equal(b.templatePlans[0].estimatedCredits, 0);
+  const savedForms = b.runIds.map(id => a.store.getRun(id).form); form.h1 = "Unrelated edit";
+  a.pipeline.startBatch(b); await a.pipeline.idle();
+  assert.equal(a.store.getBatch(b.id).status, "done"); assert.equal(a.renderer.accepted.length, 4);
+  assert.deepEqual(b.runIds.map(id => a.store.getRun(id).form), savedForms);
+  const out = publicBatch(a.store.getBatch(b.id), { store: a.store });
+  assert.equal(out.readyFiles, 15); assert.equal(out.credits, 8); assert.equal(out.templateMode, "different");
+  assert.deepEqual(out.templatePlans.map(p => p.tpl), out.runs.map(r => r.tpl));
+});
+
+test("every mixed child is preflighted before any paid submission; a late layout failure costs zero", async () => {
+  const a = setup(); const preflighted = [];
+  a.pipeline.stepPreflight = async r => { preflighted.push(r.setNo); if (r.setNo === 5) throw Object.assign(new Error("copy geometry does not fit"), { code: "layout" }); r.preflight = { ok: true }; a.pipeline.save(r); };
+  const b = a.pipeline.createBatch({ ...INPUT, templateMode: "different" }); a.pipeline.startBatch(b); await a.pipeline.idle();
+  assert.deepEqual(preflighted, [1, 2, 3, 4, 5]); assert.equal(a.renderer.accepted.length, 0);
+  assert.equal(a.store.getBatch(b.id).status, "paused"); assert.match(a.store.getBatch(b.id).error.message, /Set 5/);
+  a.pipeline.cancelBatch(b.id); assert.equal(a.store.creditsToday(), 0);
+});
+
+test("mixed admission rejects insufficient compatible templates and invalid mode before any records", async () => {
+  const a = setup();
+  for (const input of [{ ...INPUT, templateMode: "invalid" }, { ...INPUT, templateMode: "different", form: { ...FORM, ...SAMPLE.t9, tpl: "t9", p1: "Explore LED strip lights", p2: "Plan your lighting layout", p3: "Find your next project" } }]) assert.throws(() => a.pipeline.createBatch(input), { code: "bad_request" });
+  assert.equal(a.store.listRuns().length, 0); assert.equal(a.store.listBatches().length, 0); assert.equal(a.store.creditsToday(), 0);
+});
+
+test("mixed restart preserves per-child templates, cost and already accepted attempts", async () => {
+  const a = setup(); let first = true; const wait = a.renderer.wait;
+  a.renderer.wait = async (...args) => { if (first) { first = false; throw new Error("connection lost"); } return wait.apply(a.renderer, args); };
+  const b = a.pipeline.createBatch({ ...INPUT, form: { ...FORM, ...SAMPLE.t6, tpl: "t6" }, templateMode: "different" });
+  a.pipeline.startBatch(b); await a.pipeline.idle(); assert.equal(a.renderer.accepted.length, 1);
+  const frozen = b.runIds.map(id => a.store.getRun(id).form);
+  const recovered = setup({ dir: a.dir, renderer: a.renderer }); recovered.pipeline.resumeBatch(b.id); await recovered.pipeline.idle();
+  assert.equal(a.store.getBatch(b.id).status, "done"); assert.equal(a.renderer.accepted.length, 4);
+  assert.deepEqual(b.runIds.map(id => a.store.getRun(id).form), frozen); assert.equal(a.store.creditsToday(), 8);
+});
+
+test("mixed HTTP admission sums costs and replays the frozen plan after planner changes", async () => {
+  const a = setup({ cfg: { maxCreditsPerDay: 8 } }); a.renderer.balance = async () => 8;
+  await serve(a, async ({ post }) => {
+    const request = { ...INPUT, form: { ...FORM, ...SAMPLE.t6, tpl: "t6" }, templateMode: "different", requestId: "mixed-replay-123" };
+    const first = await post("/api/batches", request); assert.equal(first.status, 201, await first.clone().text());
+    const { batch } = await first.json(); assert.equal(batch.estimatedCredits, 8); assert.equal(batch.templateMode, "different");
+    await a.pipeline.idle();
+    const originalPlanner = a.pipeline.planBatch; a.pipeline.planBatch = () => { throw new Error("planner changed after deployment"); };
+    const replay = await post("/api/batches", request); assert.equal(replay.status, 200); assert.equal((await replay.json()).batch.id, batch.id);
+    a.pipeline.planBatch = originalPlanner;
+    assert.equal((await post("/api/batches", { ...request, form: { ...request.form, sceneLayout: "full" } })).status, 409);
+    assert.equal(a.renderer.accepted.length, 4);
+  });
+});
+
+test("legacy manifests resume same-template reservations and retain old idempotency hashes", async () => {
+  const a = setup(), b = a.pipeline.createBatch({ ...INPUT, count: 2 });
+  delete b.templateMode; delete b.templatePlans; a.store.saveBatch(b);
+  const recovered = setup({ dir: a.dir, renderer: a.renderer }); recovered.pipeline.resumeInterrupted(); await recovered.pipeline.idle();
+  assert.equal(a.store.getBatch(b.id).status, "done"); assert.equal(a.renderer.accepted.length, 2); assert.equal(a.store.creditsToday(), 4);
+});
+
+test("stopping during mixed batch preflight releases reservations before any provider work", async () => {
+  const a = setup(); let entered, release;
+  const seen = new Promise(r => { entered = r; }), wait = new Promise(r => { release = r; });
+  a.pipeline.stepPreflight = async r => { if (r.setNo === 3) { entered(); await wait; } };
+  const b = a.pipeline.createBatch({ ...INPUT, templateMode: "different" }); a.pipeline.startBatch(b); await seen;
+  a.pipeline.cancelBatch(b.id); release(); await a.pipeline.idle();
+  assert.equal(a.store.getBatch(b.id).status, "cancelled"); assert.equal(a.store.getBatch(b.id).error, null);
+  assert.equal(a.renderer.accepted.length, 0); assert.equal(a.store.creditsToday(), 0);
+});
+
+test("mixed admission recovery preserves a zero-cost child and nonuniform reservations", async () => {
+  const a = setup({ cfg: { maxCreditsPerDay: 8 } }), save = a.store.saveRun.bind(a.store); let writes = 0;
+  a.store.saveRun = r => { if (++writes === 2) throw new Error("admission crash"); return save(r); };
+  assert.throws(() => a.pipeline.createBatch({ ...INPUT, form: { ...FORM, ...SAMPLE.t6, tpl: "t6" }, templateMode: "different" }), /admission crash/);
+  const b = a.store.listBatches()[0], plans = structuredClone(b.templatePlans);
+  const recovered = setup({ dir: a.dir, renderer: a.renderer, cfg: { maxCreditsPerDay: 8 } }); recovered.pipeline.resumeInterrupted(); await recovered.pipeline.idle();
+  assert.equal(a.store.getBatch(b.id).status, "done"); assert.deepEqual(a.store.getBatch(b.id).templatePlans, plans);
+  assert.equal(a.store.listRuns().length, 5); assert.equal(a.renderer.accepted.length, 4); assert.equal(a.store.creditsToday(), 8);
+});
+
+test("request ID cannot switch same-template work to different-template work", async () => {
+  const a = setup();
+  await serve(a, async ({ post }) => {
+    const request = { ...INPUT, count: 2, templateMode: "same", requestId: "template-mode-id-123" };
+    assert.equal((await post("/api/batches", request)).status, 201); await a.pipeline.idle();
+    assert.equal((await post("/api/batches", { ...request, templateMode: "different" })).status, 409);
+    assert.equal(a.renderer.accepted.length, 2);
+  });
+});

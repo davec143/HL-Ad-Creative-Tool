@@ -96,9 +96,11 @@ export class Store {
   }
   reserveBatch(batchId, runIds, amount) {
     const led = this.ledger();
-    for (const runId of runIds) {
+    for (const [i, runId] of runIds.entries()) {
       const key = "plan-" + runId;
-      if (!led.entries[key]) led.entries[key] = { kind: "batch_plan", batchId, runId, amount, initialAmount: amount, day: Store.today(), state: "reserved", at: Date.now() };
+      const credits = Array.isArray(amount) ? amount[i] : amount;
+      if (!Number.isFinite(credits) || credits < 0) throw new Error("Invalid batch reservation");
+      if (!led.entries[key]) led.entries[key] = { kind: "batch_plan", batchId, runId, amount: credits, initialAmount: credits, day: Store.today(), state: "reserved", at: Date.now() };
     }
     this.setState("ledger", led);
   }

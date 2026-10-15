@@ -24,6 +24,8 @@ import { finishOne, fetchRender, validateOutput, parseResult } from "./finish.mj
 import { snapshot, renderParams, repaintParams, qaPrompt } from "../core/engine.mjs";
 import { CANVAS, KINDS } from "../core/brand.mjs";
 import { resolveSceneLayout } from "../core/composed.mjs";
+import { planBatch } from "../core/batch-templates.mjs";
+import { TPL } from "../core/brand.mjs";
 import { deliverability, parseQaStrict, BLOCKING_FLAGS } from "../core/gates.mjs";
 import { QA_SCHEMA } from "./providers/llm.mjs";
 import { FIDELITY_SCHEMA, fidelityPrompt, parseFidelity } from "../core/fidelity.mjs";
@@ -262,18 +264,25 @@ export class Pipeline {
     ];
     return directions.slice(0, count).map((direction, i) => ({ index: i + 1, scene: count === 1 ? base : base + " Keep this room type, application and time of day; create a different interior design for this photograph. " + direction }));
   }
-  createBatch({ form, picked, saveDrive, count, requestId = null, requestFingerprint = null }) {
+  planBatch(form, count, templateMode = "same") {
+    const plan = planBatch(form, { count, templateMode, availableTemplates: Object.keys(TPL).filter(tpl => this.isComposed(tpl)) });
+    if (plan.errors.length) throw new PipelineError("bad_request", plan.errors.map(e => e.title + ". " + e.body).join(" "));
+    return plan;
+  }
+  createBatch({ form, picked, saveDrive, count, templateMode = "same", requestId = null, requestFingerprint = null }) {
     if (!Number.isInteger(count) || count < 1 || count > 5) throw new PipelineError("bad_request", "Choose between 1 and 5 sets.");
     if (!this.isComposed(form.tpl)) throw new PipelineError("bad_request", "Batch generation requires a composed template.");
     if (this.busy()) throw new PipelineError("busy", "A set or batch is already running.");
     this.assertAvailable(null);
-    if (!this.requiresScene(form) && count > 1) throw new PipelineError("bad_request", "This graphic template has no scene. Choose a full or panel photo background for multiple distinct sets.");
-    const perSet = this.estimate(form), estimatedCredits = perSet * count;
-    if (perSet > this.cfg.maxCreditsPerRun || (estimatedCredits > 0 && this.store.creditsToday() + estimatedCredits > this.cfg.maxCreditsPerDay)) throw new PipelineError("credit_cap", "The batch would pass the configured credit cap. Choose fewer sets or wait for the daily cap to reset.");
+    const planned = this.planBatch(form, count, templateMode), scenes = this.scenePlans(form, count);
+    const templatePlans = planned.plans.map((p, i) => ({ ...p, form: { ...p.form, scene: scenes[i].scene }, estimatedCredits: this.estimate(p.form) }));
+    const estimates = templatePlans.map(p => p.estimatedCredits), estimatedCredits = estimates.reduce((a, n) => a + n, 0);
+    const perSet = estimates.every(n => n === estimates[0]) ? estimates[0] : null;
+    if (estimates.some(n => n > this.cfg.maxCreditsPerRun) || (estimatedCredits > 0 && this.store.creditsToday() + estimatedCredits > this.cfg.maxCreditsPerDay)) throw new PipelineError("credit_cap", "The batch would pass the configured credit cap. Choose fewer sets or wait for the daily cap to reset.");
     const batch = { id: "b" + Store.newId().slice(1), ts: Date.now(), status: "initializing", count,
       form: structuredClone(form), picked: structuredClone(picked || {}), saveDrive: !!saveDrive,
-      runIds: Array.from({ length: count }, () => Store.newId()), scenePlans: this.scenePlans(form, count),
-      estimatedCredits, perSet, requestId, requestFingerprint, activeRunId: null, cancelRequested: false, error: null };
+      runIds: Array.from({ length: count }, () => Store.newId()), scenePlans: scenes, templateMode, templatePlans,
+      estimatedCredits, perSet, requestId, requestFingerprint, planFingerprint: fingerprint(templatePlans), activeRunId: null, cancelRequested: false, error: null };
     // A manifest exists before any child or reservation. Recovery can complete admission without
     // guessing IDs or creating a second set. No child may render until admission is complete.
     this.store.saveBatch(batch);
@@ -283,13 +292,15 @@ export class Pipeline {
   initializeBatch(batch) {
     if (batch.status !== "initializing") return;
     for (let i = 0; i < batch.runIds.length; i++) if (!this.store.getRun(batch.runIds[i])) {
-      const form = { ...batch.form, scene: batch.scenePlans[i].scene };
+      const form = structuredClone(batch.templatePlans?.[i]?.form || { ...batch.form, scene: batch.scenePlans[i].scene });
       const folder = snapshot(form, batch.picked).folder + " (set " + (i + 1) + ")";
       this.create({ form, picked: batch.picked, saveDrive: batch.saveDrive, setNo: i + 1, folderOverride: folder, batchId: batch.id, id: batch.runIds[i] });
     }
-    const missing = batch.runIds.filter((id) => !this.store.ledger().entries["plan-" + id]).length * batch.perSet;
+    const estimates = batch.runIds.map((id, i) => batch.templatePlans?.[i]?.estimatedCredits ?? batch.perSet);
+    const ledger = this.store.ledger();
+    const missing = batch.runIds.reduce((sum, id, i) => sum + (ledger.entries["plan-" + id] ? 0 : estimates[i]), 0);
     if (missing > 0 && this.store.creditsToday() + missing > this.cfg.maxCreditsPerDay) throw new PipelineError("credit_cap", "The batch's remaining reservations would pass today's credit cap.");
-    this.store.reserveBatch(batch.id, batch.runIds, batch.perSet);
+    this.store.reserveBatch(batch.id, batch.runIds, estimates);
     batch.admitted = true; batch.status = "queued"; this.store.saveBatch(batch);
   }
   startBatch(batch, { recovery = false } = {}) {
@@ -334,6 +345,26 @@ export class Pipeline {
   async processBatch(id) {
     let b = this.store.getBatch(id);
     try {
+      // A later template can have tighter copy or geometry. Validate every child before the
+      // first paid scene, so set 1 cannot consume credits before set 5 reveals a layout error.
+      // Saved preflights make resume/recovery free and never resubmit an accepted render.
+      if (!b.refresh && !b.cancelRequested) {
+        for (const runId of b.runIds) {
+          this.checkSubmissionAllowed({ batchId: id });
+          const r = this.store.getRun(runId);
+          if (!r || r.batchId !== id) throw new PipelineError("batch_integrity", "A saved set is missing from this batch. No new render was submitted.");
+          if (r.status === "done") continue;
+          try {
+            await this.stepSource(r);
+            if (!r.S.source?.file) throw new PipelineError("source", "Couldn't download the product photo. Nothing was rendered or charged.");
+            await this.stepCutout(r);
+            await this.stepPreflight(r);
+          } catch (e) {
+            r.status = "failed"; r.error = { code: e.code || "error", message: e.message }; this.save(r);
+            throw new PipelineError(e.code || "error", "Set " + r.setNo + " (" + r.S.tplName + "): " + e.message);
+          }
+        }
+      }
       for (const runId of b.refresh ? b.refresh.runIds : b.runIds) {
         b = this.store.getBatch(id);
         if (this.shuttingDown) throw new PipelineError("shutting_down", "The server is restarting. Resume this batch in a minute.");

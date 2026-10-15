@@ -7,6 +7,7 @@ import vm from "node:vm";
 import { TPL, TPL_ORDER, SAMPLE, LIMITS, FLAGTXT } from "../core/brand.mjs";
 import { checkLimits, validateForGenerate, packText, FORM_FIELDS } from "../core/engine.mjs";
 import { isComposed, COMPOSED_SAMPLE_SCENE, resolveSceneLayout } from "../core/composed.mjs";
+import { planBatch } from "../core/batch-templates.mjs";
 
 function page() {
   const nodes = new Map(), requests = [], paints = [], previews = [], errors = [], timers = new Map();
@@ -21,9 +22,11 @@ function page() {
   });
   const get = id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); };
   get("ground").value = "t1";
+  get("templateMode").value = "different";
+  get("setCount").value = "1";
   for (const key of FORM_FIELDS) get(key).value = SAMPLE.t1[key] || "";
   const saved = new Map();
-  const ctx = vm.createContext({ TPL, TPL_ORDER, SAMPLE, LIMITS, FLAGTXT, checkLimits, validateForGenerate, packText, FORM_FIELDS, isComposed, COMPOSED_SAMPLE_SCENE, resolveSceneLayout,
+  const ctx = vm.createContext({ TPL, TPL_ORDER, SAMPLE, LIMITS, FLAGTXT, checkLimits, validateForGenerate, packText, FORM_FIELDS, isComposed, COMPOSED_SAMPLE_SCENE, resolveSceneLayout, planBatch,
     document: { getElementById: get, createElement: node, createTextNode: text => ({ textContent: text }), querySelector: node, querySelectorAll: () => [] },
     localStorage: { getItem: k => saved.get(k), setItem: (k,v) => saved.set(k,v), removeItem: k => saved.delete(k) },
     setTimeout: fn => { timers.set(++nextTimer, fn); return nextTimer; }, clearTimeout: id => timers.delete(id),
@@ -260,9 +263,9 @@ test("batch cancel response cannot reopen a batch after switching away", async (
   assert.equal(p.run("currentBatch"),null); assert.equal(p.run("currentRun"),"runB"); assert.equal(p.requests.length,2);
 });
 
-test("cost estimate and button label scale to five three-size sets", () => {
+test("different templates estimate only the four scene renders across five three-size sets", () => {
   const p=page(); p.get("setCount").value="5"; p.run('showCost()');
-  assert.match(p.get("cost").textContent,/5 sets · 15 files · about 10 Higgsfield credits/);
+  assert.match(p.get("cost").textContent,/5 sets · 15 files · about 8 Higgsfield credits/);
   assert.equal(p.get("go").textContent,"Generate 5 sets · 15 files");
 });
 
@@ -314,7 +317,7 @@ test("legacy fallback keeps one set and sends the supported single-run route", a
 });
 
 test("T6 graphic uses one zero-credit set and does not require Higgsfield sign-in", async () => {
-  const p = page(); p.get("ground").value = "t6"; p.get("sceneLayout").value = "template";
+  const p = page(); p.get("ground").value = "t6"; p.get("sceneLayout").value = "template"; p.get("templateMode").value = "same";
   for (const key of FORM_FIELDS) if (key !== "sceneLayout") p.get(key).value = SAMPLE.t6[key] || "";
   p.run('status={composed:["t6"],creditsPerRender:2,renderer:{needsAuth:true}}; picked={url:"https://cdn.shopify.com/product.jpg"};');
   p.get("setCount").value = "5"; p.run("showCost()");
@@ -341,4 +344,106 @@ test("no-scene output shows N/A and still offers free recomposition", async () =
   const acting = button.onclick();
   assert.equal(p.requests[0].url, "/api/runs/runGraphic/refinish");
   p.requests[0].resolve({ run: { id: "runGraphic" } }, 202); await acting;
+});
+
+test("five sets default to five named templates without changing the editor copy", async () => {
+  const p = page(); p.get("setCount").value = "5";
+  const before = p.run("JSON.stringify(form())");
+  p.run("showCost()");
+  const plan = p.run("batchPlan()");
+  assert.equal(new Set(plan.plans.map(x => x.tpl)).size, 5);
+  assert.equal(plan.plans[0].tpl, "t1");
+  assert.equal(p.run("JSON.stringify(form())"), before);
+  const list = p.get("templatePlan").children.find(n => n.children.length === 5);
+  assert.ok(list);
+  for (const [i, node] of list.children.entries()) assert.match(node.textContent, new RegExp("^Set " + (i + 1) + " · T"));
+  p.run('picked={url:"https://cdn.shopify.com/product.jpg"}');
+  const generating = p.event("go", "click");
+  const payload = JSON.parse(p.requests[0].options.body);
+  assert.equal(payload.templateMode, "different"); assert.equal(payload.count, 5);
+  assert.equal(JSON.stringify(payload.form), before);
+  p.requests[0].resolve({ error: "Busy", code: "busy" }, 409); await generating;
+});
+
+test("same-template choice keeps five photographic sets and persists with the count", async () => {
+  const p = page(); p.get("setCount").value = "5"; p.get("templateMode").value = "same";
+  await p.event("templateMode", "change");
+  assert.match(p.get("cost").textContent, /about 10 Higgsfield credits/);
+  assert.equal(p.run("new Set(batchPlan().plans.map(p=>p.tpl)).size"), 1);
+  assert.equal(p.saved.get("hl-template-mode"), "same"); assert.equal(p.saved.get("hl-set-count"), "5");
+  const next = page(); for (const [key, value] of p.saved) next.saved.set(key, value);
+  next.run('status={composed:TPL_ORDER,creditsPerRender:2,renderer:{connected:true}}');
+  await next.run("boot()");
+  assert.equal(next.get("templateMode").value, "same"); assert.equal(next.get("setCount").value, "5");
+  assert.match(next.get("cost").textContent, /about 10 Higgsfield credits/);
+});
+
+test("graphic-first mixed batch permits five sets but requires sign-in for its photo siblings", async () => {
+  const p = page(); p.get("ground").value = "t6"; p.get("sceneLayout").value = "template";
+  for (const key of FORM_FIELDS) if (key !== "sceneLayout") p.get(key).value = SAMPLE.t6[key] || "";
+  p.get("setCount").value = "5";
+  p.run('status={composed:TPL_ORDER,creditsPerRender:2,renderer:{needsAuth:true}}; picked={url:"https://cdn.shopify.com/product.jpg"}; showCost()');
+  assert.equal(p.get("setCount").value, "5"); assert.equal(p.get("setCount").disabled, false);
+  assert.equal(p.get("sceneWrap").hidden, false);
+  assert.match(p.get("cost").textContent, /about 8 Higgsfield credits/);
+  await p.event("go", "click");
+  assert.equal(p.requests.length, 0); assert.equal(p.errors[0][0], "Connect Higgsfield first");
+});
+
+test("mixed free preview checks each planned template in all sizes with its own adapted form", async () => {
+  const p = page(); p.get("setCount").value = "5";
+  p.run('picked={url:"https://cdn.shopify.com/product.jpg"}');
+  const before = p.run("JSON.stringify(form())"), plans = p.run("batchPlan().plans");
+  const previewing = p.run("refreshPreview()");
+  for (let i = 0; i < 5; i++) {
+    assert.equal(p.requests[i].url, "/api/preview");
+    assert.equal(JSON.stringify(JSON.parse(p.requests[i].options.body).form), JSON.stringify(plans[i].form));
+    p.requests[i].resolve({ cutout: { sha: "cutout", state: "approved" }, sizes: ["1080x1080", "1080x1920", "1200x628"].map(dims => ({ dims, ok: true, problems: [] })) });
+    await flush();
+  }
+  await previewing;
+  assert.equal(p.previews.length, 1); assert.equal(p.previews[0].sets.length, 5);
+  assert.equal(p.run("JSON.stringify(form())"), before);
+  assert.equal(p.get("previewBtn").disabled, false);
+});
+
+test("changing the template mode discards an in-flight preview and stops further preview work", async () => {
+  const p = page(); p.get("setCount").value = "5";
+  p.run('picked={url:"https://cdn.shopify.com/product.jpg"}');
+  const previewing = p.run("refreshPreview()");
+  p.get("templateMode").value = "same"; await p.event("templateMode", "change");
+  p.requests[0].resolve({ cutout: { sha: "stale" }, sizes: [] }); await previewing;
+  assert.equal(p.requests.length, 1); assert.deepEqual(p.previews, []);
+  assert.equal(p.get("previewBtn").disabled, false);
+});
+
+test("an incompatible mixed plan explains the shortage before any generation or preview request", async () => {
+  const p = page(); p.get("setCount").value = "5";
+  p.run('status={composed:["t1","t2"],creditsPerRender:2,renderer:{connected:true}}; picked={url:"https://cdn.shopify.com/product.jpg"}; showCost()');
+  const allText = n => [n.textContent || "", ...(n.children || []).map(allText)].join(" ");
+  assert.match(allText(p.get("templatePlan")), /fits 2 different templates/);
+  await p.event("go", "click"); await p.run("refreshPreview()");
+  assert.equal(p.requests.length, 0);
+  assert.match(p.errors[0][0], /fits 2 different templates/);
+  assert.match(allText(p.get("preview")), /Same template/);
+});
+
+test("changing template mode after an unknown outcome uses a new request ID", async () => {
+  const p = page(); p.get("setCount").value = "5";
+  p.run('let nextId=0; crypto.randomUUID=()=>"request-"+(++nextId); picked={url:"https://cdn.shopify.com/product.jpg"}');
+  const first = p.event("go", "click"); p.requests[0].reject(new Error("Connection lost")); await first;
+  p.get("templateMode").value = "same"; await p.event("templateMode", "change");
+  const second = p.event("go", "click");
+  const one = JSON.parse(p.requests[0].options.body), two = JSON.parse(p.requests[1].options.body);
+  assert.equal(one.templateMode, "different"); assert.equal(two.templateMode, "same");
+  assert.notEqual(one.requestId, two.requestId);
+  p.requests[1].resolve({ error: "Busy", code: "busy" }, 409); await second;
+});
+
+test("batch child navigation identifies the actual template of each saved set", () => {
+  const p = page();
+  p.run('paintBatch({id:"batchMixed",status:"done",count:2,runs:[{id:"run1",setNo:1,tpl:"t6",status:"done"},{id:"run2",setNo:2,tpl:"t11",status:"done"}],credits:2,completed:2},false)');
+  const allText = n => [n.textContent || "", ...(n.children || []).map(allText)].join(" ");
+  assert.match(allText(p.get("batch")), /Set 1 · T6 ·/);
+  assert.match(allText(p.get("batch")), /Set 2 · T11 ·/);
 });

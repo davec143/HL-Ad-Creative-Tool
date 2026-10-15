@@ -2,11 +2,13 @@
 
 The builder supports **11 templates**, including six October reference designs, and explicit
 **full-background or large-photo-panel scenes**. Generate **1–5 sets** (3–15 files), track each
-set, resume interruptions, and download a batch ZIP containing ready files only. The Violet
+set, resume interruptions, and download a batch ZIP containing ready files only. Multiple sets
+default to **different compatible templates**, with the lineup shown before generation; choose
+**Same template** to vary only the scenes. The Violet
 Collection graphic layout uses no scene render or scene credits; photographic modes support
 multiple scenes. See [reliability verification](docs/RELIABILITY.md) for tests and limits.
 
-A standalone web app that turns one Shopify product (an exact variant) and a short message into a brand-locked Meta **image** ad at three **placement sizes**: **1080×1080, 1080×1920 and 1200×628**. It's one concept reflowed to three aspect ratios, not three designs and not three creative variants (see `docs/CREATIVE_DIVERSITY.md`). It rebuilds the Claude-artifact Ad Builder (v16) as its own server, with no Claude account, artifact runtime or connectors.
+A standalone web app that turns one Shopify product (an exact variant) and a short message into a brand-locked Meta **image** ad at three **placement sizes**: **1080×1080, 1080×1920 and 1200×628**. Each set reflows one design into three aspect ratios; a mixed-template batch uses a distinct design for each set. It rebuilds the Claude-artifact Ad Builder (v16) as its own server, with no Claude account, artifact runtime or connectors.
 
 **Status:**
 - **Image pipeline:** implemented and covered by automated tests. The COB promotion set was verified live with Shopify, the existing Higgsfield scene, scene checks and Drive on October 13, 2026. Cutout recovery is also checked against the EZDim and Luma product photos; this does not guarantee segmentation accuracy for every new photo.
@@ -23,7 +25,7 @@ restart recovery, bounded image downloads, and smaller/off-white studio product 
 
 1. **Product.** Same as below: an exact Shopify variant, frozen into the set.
 2. **Cutout.** The product photo's background is removed locally (IS-Net plus studio-photo repair, free). Only transparency changes: source RGB pixels are preserved. For damaged packaging on a plain white backdrop, outside-connected background removal restores white printing and complete package faces; neutral hardware, mounting holes and broad floor reflections are handled separately. A person checks each cutout **once** (or uploads their own PNG). Approval is tied to the exact PNG revision. Replacing a cutout invalidates and rebuilds dependent ads before delivery, and stale preview approvals are rejected. Algorithm upgrades rebuild unapproved automatic cutouts when previewed, resumed, rechecked or recomposed; uploaded and approved corrections are preserved.
-3. **Free layout check.** All three sizes are laid out before anything is paid for. Copy that doesn't fit fails here, with the field named.
+3. **Free layout check.** All three sizes of every planned set are laid out before the batch buys any scene. Mixed templates retain the exact headline, CTA and visible supporting copy, placing support text in each layout’s available fields. Offer deadlines remain visible. Copy is never shortened or invented to make another template fit; if too few layouts fit, shorten the copy, choose fewer sets or choose Same template.
 4. **One scene per photographic set.** Higgsfield renders **one scene photograph** (no text, product, logo or panels). About 2 credits per set, shared by all three sizes. T6’s graphic default skips this step and costs zero scene credits.
 5. **Scene preparation and check.** Plain white padding at the outside edges is cropped locally, with the original render preserved. A vision model checks the prepared photo alone for stray lettering, panels, faces or close-up devices. The composer uses those same prepared pixels. If a source detail fails or is uncertain, the model also checks all three finished ads against the original product photo: hidden, cropped-out or unrecognizable blurred details are judged at their actual displayed size. This verdict is bound to the exact output bytes; visible defects, uncertainty and check errors still hold delivery. Existing sets can use **Re-compose** or **Repair margins and recheck** to recover without another Higgsfield render.
 6. **Compose** (`composer/`, headless Chromium). The app builds each size from the template:

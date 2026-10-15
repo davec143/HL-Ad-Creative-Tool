@@ -129,3 +129,24 @@ Verification includes actual Chromium composition, exact output dimensions, JPEG
 460,000-byte limit, source/cutout/output hashes, ZIP integrity, visual inspection of all 54 outputs,
 and original/transparent/violet/dark cutout comparisons. The real-model transformation matrix is
 rerun on algorithm 5; its scope remains the six transformations and three products described above.
+
+## October 15: different templates within one batch
+
+The builder defaults multi-set batches to Different templates and displays the planned design for
+each set. Same template remains available for scene-only variation. A shared deterministic planner
+selects distinct compatible templates, beginning with the selected design. It preserves the source
+headline, CTA, contact details and visible supporting copy; proof lines may become a subheadline,
+and a supplied promotional deadline remains visible in the target layout. Hidden stale fields are
+excluded. Incompatible copy is never truncated or replaced with invented claims.
+
+Each child persists its own form, template and credit estimate. Graphic layouts reserve zero scene
+credits while photographic siblings reserve their actual estimate. Older manifests and retries keep
+their original plans. Every child is preflighted in all three sizes before the first paid scene,
+including when a later layout is tighter than the selected one. Cancellation, restart recovery,
+ambiguous submissions and ready-only ZIP delivery retain their existing safeguards.
+
+Free preview now covers every distinct planned template. Browser tests cover mode/count persistence,
+stale multi-template previews, mixed graphic/photo authentication, exact request plans and child labels.
+The independent compositor matrix checks all 11 starting templates × five planned designs × three
+sizes (165 compositions) with real Chromium. Paid-provider tests use fakes; the interactive batch smoke
+test reuses a verified product cutout and room photograph without purchasing new renders.

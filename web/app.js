@@ -3,6 +3,7 @@
 import { TPL, TPL_ORDER, SAMPLE, LIMITS, FLAGTXT } from "/core/brand.mjs";
 import { checkLimits, validateForGenerate, packText, FORM_FIELDS } from "/core/engine.mjs";
 import { isComposed, COMPOSED_SAMPLE_SCENE, resolveSceneLayout } from "/core/composed.mjs";
+import { planBatch } from "/core/batch-templates.mjs";
 
 const $ = (id) => document.getElementById(id);
 const logEl = $("log"), outEl = $("out");
@@ -34,11 +35,11 @@ function form() {
 }
 // Async results belong to the product/copy and selected set that requested them. A late response
 // must never overwrite a newer edit or make buttons operate on a different set.
-function editorKey() { return JSON.stringify({ form: form(), picked }); }
+function editorKey() { return JSON.stringify({ form: form(), picked, count: setCount(), templateMode: templateMode() }); }
 function invalidatePreview() {
   previewVersion++;
   const box = $("preview");
-  if (!box.hidden) { box.innerHTML = ""; box.appendChild(el("p", "hint", "The product or copy changed. Preview again to see the updated set.")); }
+  if (!box.hidden) { box.innerHTML = ""; box.appendChild(el("p", "hint", "The product, copy or template plan changed. Preview again to see the updated sets.")); }
   $("previewBtn").disabled = false; $("previewBtn").textContent = "Preview free (0 credits)";
 }
 function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* ignore */ } }
@@ -77,26 +78,51 @@ function showGate() {
   }
 }
 function noScene() { return composedNow($("ground").value) && resolveSceneLayout($("ground").value, $("sceneLayout").value) === "none"; }
+function templateMode() { return $("templateMode").value === "same" ? "same" : "different"; }
+function batchPlan() {
+  return planBatch(form(), { count: setCount(), templateMode: templateMode(), availableTemplates: TPL_ORDER.filter(composedNow) });
+}
+function templateName(tpl, fallback) { return (TPL[tpl]?.name || fallback || tpl || "Template").replace(/^Template (\d+) — /, "T$1 · "); }
 function updateBatchOptions() {
-  const fixed = noScene() || !composedNow($("ground").value);
+  const comp = composedNow($("ground").value), fixed = !comp || (noScene() && templateMode() === "same");
   if (fixed) $("setCount").value = "1";
   $("setCount").disabled = fixed;
-  $("setCountHint").textContent = noScene() ? "This reference is a graphic product layout: one set, three files, zero scene credits. Choose Full background or Large photo panel to generate multiple scenes." :
-    !composedNow($("ground").value) ? "This renderer supports one set at a time." : "Each set gets a different scene. Your product, copy and chosen layout stay consistent across every set and size.";
+  $("templateModeWrap").hidden = !comp;
+  $("setCountHint").textContent = !comp ? "This renderer supports one set at a time." : noScene() && templateMode() === "same" ?
+    "This graphic layout needs one set, three files and zero scene credits. Choose Different templates to include other designs in a batch." : setCount() === 1 ?
+    "One set uses your selected template. Choose two to five sets to compare different designs." : templateMode() === "different" ?
+    "Each set uses a different compatible template, starting with your selected design. Your product and message stay the same." :
+    "Each set gets a different scene. Your product, copy and chosen template stay consistent across every set and size.";
 }
 function setCount() { return Math.max(1, Math.min(5, Number($("setCount").value) || 1)); }
 function generateLabel() { const n = setCount(); return "Generate " + n + (n === 1 ? " set" : " sets") + " · " + (n * 3) + " files"; }
+function paintTemplatePlan(plan) {
+  const box = $("templatePlan"); box.innerHTML = ""; box.hidden = setCount() === 1;
+  if (box.hidden) return;
+  box.appendChild(el("b", null, "Your template plan"));
+  const list = el("ol");
+  for (const p of plan.plans) list.appendChild(el("li", null, "Set " + p.index + " · " + templateName(p.tpl, p.tplName) + (p.sceneRequired ? " · room photo" : " · graphic, 0 scene credits")));
+  box.appendChild(list);
+  for (const error of plan.errors) box.appendChild(el("p", "planerror", error.title + ": " + error.body));
+}
 function showCost() {
   updateBatchOptions();
-  const c = $("cost"), per = status ? status.creditsPerRender : 2, comp = composedNow($("ground").value), n = setCount(), total = noScene() ? 0 : n * (comp ? 1 : 3) * per;
+  const c = $("cost"), per = status ? status.creditsPerRender : 2, comp = composedNow($("ground").value), n = setCount();
+  const plan = comp ? batchPlan() : null, scenes = plan ? plan.plans.filter(p => p.sceneRequired).length : n * 3, total = scenes * per;
+  if (plan) paintTemplatePlan(plan); else $("templatePlan").hidden = true;
+  $("sceneWrap").hidden = comp && scenes === 0;
+  if (comp) $("howComposed").textContent = scenes === 0 ? "The app builds this graphic reference in all three sizes without an AI scene render: your real product cutout, exact copy, brand type, logo and CTA. Product and output checks still apply." : "Higgsfield renders one distinct room photo for each set that uses a photo. The app builds all three sizes with the real product cutout, your exact message, Montserrat, the gold CTA and the real logo. Every planned template is checked before credits are spent.";
   const bal = status && status.balance;
   c.textContent = n + (n === 1 ? " set" : " sets") + " · " + (n * 3) + " files · about " + total + " Higgsfield credits. " +
-    (noScene() ? "Graphic layout: no scene render is needed." : comp ? "One different scene per set, shared across its three sizes. Re-composing is free." : "Three renders per set. Regenerating a size adds " + per + " credits.") +
+    (plan?.errors.length ? "Resolve the template plan above before generating. " : "") +
+    (scenes === 0 ? "Graphic layout: no scene render is needed." : comp ? scenes + (scenes === 1 ? " scene render" : " scene renders") + ", each shared across its set's three sizes. Re-composing is free." : "Three renders per set. Regenerating a size adds " + per + " credits.") +
     (bal != null ? " Balance: " + Math.round(bal * 10) / 10 + " credits." : "");
   c.classList.toggle("low", bal != null && bal < total);
   if (!$("go").disabled) $("go").textContent = generateLabel();
 }
-$("setCount").addEventListener("change", showCost);
+for (const id of ["setCount", "templateMode"]) $(id).addEventListener("change", () => {
+  showCost(); invalidatePreview(); store("hl-set-count", String(setCount())); store("hl-template-mode", templateMode());
+});
 function sceneLayoutHint() {
   const mode = $("sceneLayout").value || "template";
   $("sceneLayoutHint").textContent = mode === "full" ? "The room fills the ad, with a clear photo and a small product cutout. A local shade keeps your message readable." :
@@ -244,7 +270,7 @@ function showLimits() {
 }
 $("ground").addEventListener("change", () => { swapSamples(); applyTpl(); store("hl-tpl", $("ground").value); });
 for (const id of [...FORM_FIELDS, "ground"]) {
-  if ($(id)) for (const event of ["input", "change"]) $(id).addEventListener(event, invalidatePreview);
+  if ($(id)) for (const event of ["input", "change"]) $(id).addEventListener(event, () => { invalidatePreview(); showCost(); });
 }
 
 // ---------- draft ----------
@@ -258,7 +284,7 @@ $("draft").addEventListener("click", async () => {
     if (requested !== editorKey()) { hint.textContent = "The product or copy changed while drafting. Your edits were kept; request a new draft when ready."; return; }
     for (const k of ["h1", "h2", "sub", "p1", "p2", "p3", "cta", "scene"]) if ($(k) && f[k] !== undefined) $(k).value = f[k];
     invalidatePreview();
-    showLimits();
+    showLimits(); showCost();
     hint.textContent = "Drafted from the product listing — read it over and edit anything that's off." +
       (violations.length ? " Kept out (not in the product data): " + violations.map((v) => v.field + ": " + v.reason).join("; ") + "." : "");
   } catch (e) { hint.textContent = e.code === "login" ? "" : "Couldn't draft it: " + e.message; }
@@ -270,13 +296,23 @@ async function refreshPreview() {
   const box = $("preview"), btn = $("previewBtn");
   const version = ++previewVersion, requested = editorKey();
   if (!picked || !picked.url) { box.hidden = false; box.innerHTML = ""; box.appendChild(el("p", "hint", "Pick a product first.")); return; }
+  const plan = batchPlan();
+  if (plan.errors.length) { box.hidden = false; box.innerHTML = ""; for (const e of plan.errors) box.appendChild(el("p", "err", e.title + ": " + e.body)); return; }
+  const layouts = plan.plans.filter((p, i, all) => all.findIndex(x => x.tpl === p.tpl) === i);
   btn.disabled = true; btn.textContent = "Laying it out…";
-  box.hidden = false; box.innerHTML = ""; box.appendChild(el("p", "hint", "Cutting the product out of its photo and laying out the three sizes (the first time for a product takes a few seconds)…"));
+  box.hidden = false; box.innerHTML = "";
+  const progress = el("p", "hint", "Preparing your product cutout and checking every planned template in all three sizes…"); box.appendChild(progress);
   try {
-    const p = await api("/api/preview", { method: "POST", body: { form: form(), picked } });
-    if (version !== previewVersion) return;
-    if (requested !== editorKey()) { invalidatePreview(); return; }
-    paintPreview(p);
+    const sets = []; let cutout;
+    for (const p of layouts) {
+      progress.textContent = "Checking " + templateName(p.tpl, p.tplName) + " in all three sizes (" + (sets.length + 1) + " of " + layouts.length + ")…";
+      const preview = await api("/api/preview", { method: "POST", body: { form: p.form, picked } });
+      if (version !== previewVersion) return;
+      if (requested !== editorKey()) { invalidatePreview(); return; }
+      cutout ||= preview.cutout;
+      sets.push({ ...p, ...preview });
+    }
+    paintPreview(layouts.length === 1 ? sets[0] : { cutout, sets });
   } catch (e) { if (version === previewVersion) { box.innerHTML = ""; if (e.code !== "login") box.appendChild(el("div", "err", "Preview didn't work: " + e.message)); } }
   finally { if (version === previewVersion) { btn.disabled = false; btn.textContent = "Preview free (0 credits)"; } }
 }
@@ -284,13 +320,25 @@ $("previewBtn").addEventListener("click", refreshPreview);
 function paintPreview(p) {
   const box = $("preview"); box.innerHTML = "";
   box.appendChild(cutoutPanel(p.cutout, null));
+  const sets = p.sets || [p];
+  if (sets.length > 1) {
+    const fits = sets.every(s => s.sizes.length === 3 && s.sizes.every(x => x.ok));
+    box.appendChild(el("div", "qa " + (fits ? "pass" : "fail"), fits ? "All " + sets.length + " templates fit in all three sizes." : "Some planned templates need attention. Fix the copy before generating."));
+  }
+  for (const set of sets) {
+    const section = el("section", "templatepreview");
+    if (sets.length > 1) section.appendChild(el("h3", null, "Set " + set.index + " · " + templateName(set.tpl, set.tplName)));
+    paintPreviewSizes(set, section); box.appendChild(section);
+  }
+}
+function paintPreviewSizes(p, box) {
   if (!p.sizes.length) return;
   const okAll = p.sizes.every((s) => s.ok);
-  box.appendChild(el("div", "qa " + (okAll ? "pass" : "fail"), okAll ? (noScene() ? "The copy fits all three sizes. This graphic layout uses no scene photo." : "The copy fits all three sizes. The placeholder shows exactly where your scene will appear.") : "Some copy doesn't fit — fix it before generating (nothing is charged until it fits):"));
+  box.appendChild(el("div", "qa " + (okAll ? "pass" : "fail"), okAll ? (p.sceneRequired === false ? "The copy fits all three sizes. This graphic layout uses no scene photo." : "The copy fits all three sizes. The placeholder shows exactly where your scene will appear.") : "Some copy doesn't fit — fix it before generating (nothing is charged until it fits):"));
   const strip = el("div", "side");
   for (const s of p.sizes) {
     const d = el("div");
-    if (s.image) { const i = el("img"); i.src = s.image; i.alt = s.dims + " preview"; d.appendChild(i); }
+    if (s.image) { const i = el("img"); i.src = s.image; i.alt = templateName(p.tpl, p.tplName) + " · " + s.dims + " preview"; d.appendChild(i); }
     d.appendChild(el("span", null, s.dims + (s.ok ? "" : " — doesn't fit")));
     strip.appendChild(d);
   }
@@ -394,10 +442,13 @@ $("go").addEventListener("click", async () => {
   const f = form();
   const bad = validateForGenerate(f, { hasImage: !!(picked && picked.url) });
   if (bad.length) { fail(bad[0].title, bad[0].body); return; }
-  if (status && status.renderer.needsAuth && !noScene()) { fail("Connect Higgsfield first", "Use the sign-in button at the top of the page."); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  const plan = composedNow(f.tpl) ? batchPlan() : null;
+  if (plan?.errors.length) { fail(plan.errors[0].title, plan.errors[0].body); return; }
+  const needsScene = plan ? plan.plans.some(p => p.sceneRequired) : true;
+  if (status && status.renderer.needsAuth && needsScene) { fail("Connect Higgsfield first", "Use the sign-in button at the top of the page."); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
   if (generationBusy) return;
   const selection = selectionVersion;
-  const payload = { form: f, picked, saveDrive: $("saveDrive").checked, count: setCount() };
+  const payload = { form: f, picked, saveDrive: $("saveDrive").checked, count: setCount(), templateMode: templateMode() };
   const key = JSON.stringify(payload);
   // Keep the same request id after an unknown network outcome, including after reload.
   if (!pendingGeneration) { try { pendingGeneration = JSON.parse(recall("hl-pending-generation") || "null"); } catch { pendingGeneration = null; } }
@@ -675,7 +726,7 @@ function paintBatch(batch, busy) {
   if (batch.driveErrors) box.appendChild(el("p", "hint", batch.driveErrors + " sets could not be saved to Drive. Open the affected set for details; ready files can still be downloaded."));
   const list = el("div", "batchsets");
   for (const r of batch.runs || []) {
-    const b = el("button", "btn-quiet", "Set " + r.setNo + " · " + ({ batch_queued: "queued", needs_decision: "needs a decision" }[r.status] || r.status));
+    const b = el("button", "btn-quiet", "Set " + r.setNo + " · " + templateName(r.tpl || r.form?.tpl, r.tplName) + " · " + ({ batch_queued: "queued", needs_decision: "needs a decision" }[r.status] || r.status));
     b.type = "button"; b.setAttribute("aria-pressed", String(r.id === currentRun));
     b.onclick = () => { selectionVersion++; currentRun = r.id; store("hl-run", r.id); paintBatch(batch, busy); pollBatch(); };
     list.appendChild(b);
@@ -694,7 +745,8 @@ function paintBatch(batch, busy) {
   if (selected) {
     paintRun(selected, busy);
     const plan = batch.scenePlans?.[selected.setNo - 1];
-    if (plan) box.appendChild(el("p", "hint", "Set " + selected.setNo + " scene: " + (typeof plan === "string" ? plan : plan.label || plan.scene || JSON.stringify(plan))));
+    if (selected.sceneRequired === false) box.appendChild(el("p", "hint", "Set " + selected.setNo + " uses a graphic background and needs no scene render."));
+    else if (plan) box.appendChild(el("p", "hint", "Set " + selected.setNo + " scene: " + (typeof plan === "string" ? plan : plan.label || plan.scene || JSON.stringify(plan))));
   }
 }
 async function loadBatches() {
@@ -776,6 +828,8 @@ async function boot() {
   const t = TPL_ORDER.includes(requested) ? requested : recall("hl-tpl");
   if (TPL_ORDER.includes(t)) $("ground").value = t;
   lastTpl = $("ground").value;
+  $("templateMode").value = recall("hl-template-mode") === "same" ? "same" : "different";
+  $("setCount").value = String(Math.max(1, Math.min(5, Number(recall("hl-set-count")) || 1)));
   try { await refreshStatus(); } catch (e) { if (e.code === "login") return; fail("The server didn't answer", e.message); }
   const s = sampleFor(lastTpl);
   for (const f of SAMPLE_FIELDS) if ($(f)) $(f).value = s[f] || "";

@@ -15,6 +15,7 @@ import { Sessions, LoginLimiter, parseCookies, originOk, checkImageUrl, security
 const STATIC = {
   "/": "web/index.html", "/app.js": "web/app.js", "/styles.css": "web/styles.css",
   "/core/engine.mjs": "core/engine.mjs", "/core/brand.mjs": "core/brand.mjs", "/core/composed.mjs": "core/composed.mjs",
+  "/core/batch-templates.mjs": "core/batch-templates.mjs",
   "/assets/logos/hitlights-logo-white.png": "assets/logos/hitlights-logo-white.png",
   "/assets/logos/hitlights-logo-black.png": "assets/logos/hitlights-logo-black.png",
   "/assets/logos/hitlights-mark.png": "assets/logos/hitlights-mark.png",
@@ -78,6 +79,8 @@ export function publicBatch(batch, { store, ...opts }) {
     id: batch.id, ts: batch.ts, status: batch.status, count: batch.count, operation: batch.refresh ? "refresh_cutout" : "generate",
     activeRunId: batch.activeRunId, cancelRequested: !!batch.cancelRequested,
     scenePlans: batch.scenePlans, estimatedCredits: batch.estimatedCredits,
+    templateMode: batch.templateMode || "same",
+    templatePlans: batch.templatePlans?.map(({ index, tpl, tplName, sceneRequired, estimatedCredits }) => ({ index, tpl, tplName, sceneRequired, estimatedCredits })) || runs.map((r, i) => ({ index: i + 1, tpl: r.tpl, tplName: r.tplName, sceneRequired: r.sceneRequired, estimatedCredits: batch.perSet })),
     credits: credits.committed, creditsDetail: { ...credits, estimate: true },
     completed: runs.filter((r) => r.status === "done").length,
     failed: runs.filter((r) => ["failed", "partial", "needs_decision"].includes(r.status)).length,
@@ -207,26 +210,31 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     ["POST", /^\/api\/batches$/, async (req, res) => {
       const b = await body(req), form = cleanForm(b.form), picked = cleanPicked(b.picked), count = b.count;
       if (!Number.isInteger(count) || count < 1 || count > 5) throw new HttpError(400, "Choose between 1 and 5 sets.", "invalid");
-      if (!pipeline.isComposed(form.tpl)) throw new HttpError(400, "Batch generation requires a composed template.", "invalid");
-      if (!pipeline.requiresScene(form) && count > 1) throw new HttpError(400, "This graphic template has no scene. Choose a full or panel photo background for multiple distinct sets.", "invalid");
       if (b.picked && b.picked.url && !picked.url) throw new HttpError(400, picked.urlError, "bad_url");
-      const bad = validateForGenerate(form, { hasImage: !!picked.url });
-      if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
       const requestId = b.requestId == null ? null : b.requestId;
       if (requestId !== null && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(requestId))) throw new HttpError(400, "Invalid batch request ID.", "invalid");
-      const input = { form, picked, saveDrive: b.saveDrive !== false, count };
+      const templateMode = b.templateMode === undefined ? "same" : b.templateMode;
+      const input = { form, picked, saveDrive: b.saveDrive !== false, count, templateMode };
       const requestFingerprint = fingerprint(input);
       const previous = requestId && store.listBatches(Infinity).find((x) => x.requestId === requestId);
       if (previous) {
-        if (previous.requestFingerprint !== requestFingerprint) throw new HttpError(409, "This request ID already belongs to a different batch.", "request_conflict");
+        // Replays of manifests created before mixed-template batches retain their old hash.
+        const legacyFingerprint = fingerprint({ form, picked, saveDrive: b.saveDrive !== false, count });
+        if (previous.requestFingerprint !== requestFingerprint && !(templateMode === "same" && !previous.templateMode && previous.requestFingerprint === legacyFingerprint)) throw new HttpError(409, "This request ID already belongs to a different batch.", "request_conflict");
         return send(res, 200, { batch: publicBatch(previous, PR) });
       }
+      if (!pipeline.isComposed(form.tpl)) throw new HttpError(400, "Batch generation requires a composed template.", "invalid");
+      const bad = validateForGenerate(form, { hasImage: !!picked.url });
+      if (bad.length) throw new HttpError(400, bad[0].title + ". " + bad[0].body, "invalid");
+      let plan;
+      try { plan = pipeline.planBatch(form, count, templateMode); }
+      catch (e) { throw pipelineHttp(e); }
       if (startingRun || pipeline.busy()) throw new HttpError(409, "A set or batch is already running. Wait for it to finish.", "busy");
       if (pipeline.shuttingDown) throw new HttpError(503, "The server is restarting. Try again in a minute.", "shutting_down");
       startingRun = true;
       try {
-        const need = pipeline.estimate(form, count);
-        if (pipeline.estimate(form) > cfg.maxCreditsPerRun || (need > 0 && store.creditsToday() + need > cfg.maxCreditsPerDay)) throw new HttpError(429, "This batch would pass the configured credit cap. Choose fewer sets or wait for the daily cap to reset.", "credit_cap");
+        const estimates = plan.plans.map(p => pipeline.estimate(p.form)), need = estimates.reduce((sum, n) => sum + n, 0);
+        if (estimates.some(n => n > cfg.maxCreditsPerRun) || (need > 0 && store.creditsToday() + need > cfg.maxCreditsPerDay)) throw new HttpError(429, "This batch would pass the configured credit cap. Choose fewer sets or wait for the daily cap to reset.", "credit_cap");
         if (need > 0) {
           const st = await renderer.status();
           if (st.needsAuth) throw new HttpError(409, "Sign in to Higgsfield first.", "needs_auth");

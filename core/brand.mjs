@@ -533,7 +533,7 @@ for (const [id, name, referenceFamily, register, sceneMode, proofs, sub, theme, 
   SAMPLE[id] = {
     h1: register === 'trade' ? 'LIGHT YOUR' : 'MAKE ROOM', h2: register === 'trade' ? 'NEXT PROJECT' : 'FOR WARMTH',
     sub: sub ? 'Explore lighting for the spaces you love.' : '',
-    p1: proofs ? 'Explore LED strip lights' : '', p2: proofs ? 'Plan your lighting layout' : '', p3: proofs ? 'Find your next project' : '',
+    p1: proofs ? 'Explore LED strips' : '', p2: proofs ? 'Plan your lighting' : '', p3: proofs ? 'Start your project' : '',
     cta: id === 't6' || id === 't11' ? 'VIEW COLLECTION' : 'SHOP NOW', deadline: '',
     scene: 'A welcoming room with warm LED cove lighting, natural wood and clearly visible architectural details.',
   };

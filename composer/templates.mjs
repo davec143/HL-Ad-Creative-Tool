@@ -1,6 +1,6 @@
 // Brand-layer templates: the ad is built from these exact layouts, not drawn by the image model.
-// Source of truth: reference/HitLights_Ad_Templates.html (colours, type, element order) and the
-// Logo Grid in core/brand.mjs (logo colourway, position and width per size). The image model only
+// Source of truth: core/brand.mjs and these layouts. The generated reference library shows the
+// same colours, type, element order and Logo Grid used here. The image model only
 // supplies the scene photograph; the product is the real photo (background removed), and every
 // word, the CTA and the logo are set here in Montserrat, so they are identical on every render.
 //

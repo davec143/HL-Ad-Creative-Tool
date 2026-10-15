@@ -10,7 +10,7 @@ import { Store } from "../server/store.mjs";
 import { Pipeline } from "../server/pipeline.mjs";
 import { FakeRenderer } from "../server/render/fake.mjs";
 import { readConfig, ROOT } from "../server/config.mjs";
-import { SAMPLE } from "../core/brand.mjs";
+import { SAMPLE, TPL_ORDER } from "../core/brand.mjs";
 
 const PY = process.env.PYTHON || (fs.existsSync(path.join(ROOT, ".venv/bin/python")) ? path.join(ROOT, ".venv/bin/python") : "python3");
 
@@ -34,6 +34,18 @@ async function boot(env = {}, over = {}) {
 }
 const FORM = { tpl: "t1", ...SAMPLE.t1, phone: "+1 855 768 4135", email: "customerservice@hitlights.com" };
 const PICK = { url: "https://cdn.shopify.com/p.jpg", title: "EZDim 12V" };
+
+test("live library route serves the complete registry with revalidation", async () => {
+  const a = await boot();
+  try {
+    const r = await a.req('/reference');
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/html/);
+    assert.equal(r.headers.get('cache-control'), 'no-cache');
+    assert.match(r.headers.get('content-security-policy'), /script-src 'none'/);
+    for (const tpl of TPL_ORDER) assert.ok(r.buf.toString().includes(`data-template="${tpl}"`), `missing ${tpl}`);
+  } finally { await a.close(); }
+});
 
 test("password gate: API locked until sign-in; wrong password refused", async () => {
   const a = await boot({ APP_PASSWORD: "hunter2", SESSION_SECRET: "s".repeat(40) });

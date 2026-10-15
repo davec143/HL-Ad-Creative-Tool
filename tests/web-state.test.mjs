@@ -10,6 +10,7 @@ import { isComposed, COMPOSED_SAMPLE_SCENE, resolveSceneLayout } from "../core/c
 
 function page() {
   const nodes = new Map(), requests = [], paints = [], previews = [], errors = [], timers = new Map();
+  const browserLocation = { pathname: "/", search: "", hash: "" };
   let nextTimer = 0;
   const node = () => ({ value: "", hidden: true, textContent: "", innerHTML: "", disabled: false,
     style: {}, children: [], childNodes: [], listeners: {}, classList: { toggle() {}, add() {} },
@@ -27,19 +28,113 @@ function page() {
     localStorage: { getItem: k => saved.get(k), setItem: (k,v) => saved.set(k,v), removeItem: k => saved.delete(k) },
     setTimeout: fn => { timers.set(++nextTimer, fn); return nextTimer; }, clearTimeout: id => timers.delete(id),
     fetch: (url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve: (body, status = 200) => resolve({ok: status < 400, status, json: async () => body}), reject})),
-    crypto: { randomUUID: () => "test-request-id" }, URLSearchParams, location: { search: "" }, history: { replaceState() {} }, window: { scrollTo() {} },
+    crypto: { randomUUID: () => "test-request-id" }, URLSearchParams, location: browserLocation,
+    history: { state: null, replaceState(state, title, url) { const next = new URL(url, "https://ads.example"); Object.assign(browserLocation, { pathname: next.pathname, search: next.search, hash: next.hash }); this.state = state; } },
+    window: { scrollTo() {} },
     confirm: () => true, paints, previews, errors, console,
   });
   const source = fs.readFileSync(new URL("../web/app.js", import.meta.url), "utf8")
     .replace(/^import .*;\n/gm, "").replace(/\nboot\(\);\s*$/, "\n");
   vm.runInContext(source, ctx);
-  vm.runInContext("const actualPaintRun = paintRun; paintRun = r => paints.push(r.id); paintPreview = p => previews.push(p); fail = (a,b) => errors.push([a,b]); loadRuns = async () => {}; loadBatches = async () => {}; refreshStatus = async () => {};", ctx);
+  vm.runInContext("const actualPaintRun = paintRun, actualRefreshStatus = refreshStatus; paintRun = r => paints.push(r.id); paintPreview = p => previews.push(p); fail = (a,b) => errors.push([a,b]); loadRuns = async () => {}; loadBatches = async () => {}; refreshStatus = async () => {};", ctx);
   return { ctx, get, requests, paints, previews, errors, timers, saved,
     run: code => vm.runInContext(code, ctx),
     event: async (id, name) => { for (const fn of get(id).listeners[name] || []) await fn({ target: get(id) }); },
   };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test("every template library link opens its selected design instead of the remembered template", async () => {
+  for (const tpl of TPL_ORDER) {
+    const p = page();
+    p.saved.set("hl-tpl", tpl === "t1" ? "t5" : "t1");
+    p.ctx.location.search = "?template=" + tpl;
+    p.run('status={composed:TPL_ORDER,creditsPerRender:2,renderer:{connected:true}}');
+    await p.run("boot()");
+    assert.equal(p.get("ground").value, tpl);
+    assert.equal(p.run("lastTpl"), tpl);
+    assert.equal(p.get("h1").value, SAMPLE[tpl].h1 || "");
+    assert.equal(p.get("h2").value, SAMPLE[tpl].h2 || "");
+    assert.match(p.get("tplnote").textContent, new RegExp("Template " + tpl.slice(1) + " —"));
+    assert.deepEqual(p.get("ground").children.map(n => n.value), TPL_ORDER);
+    assert.equal(p.requests.length, 0, "opening a library link must not spend credits or generate a set");
+    assert.deepEqual(p.errors, []);
+  }
+});
+
+test("invalid template links fall back to a valid remembered template or T1", async () => {
+  for (const linked of ["t0", "t99", "T6", "constructor", "toString", "__proto__", "<script>"]) {
+    for (const remembered of ["t10", "t99", "constructor", "__proto__", ""]) {
+      const p = page();
+      p.saved.set("hl-tpl", remembered);
+      p.ctx.location.search = "?template=" + encodeURIComponent(linked);
+      p.run('status={composed:TPL_ORDER,creditsPerRender:2,renderer:{connected:true}}');
+      await p.run("boot()");
+      const expected = remembered === "t10" ? "t10" : "t1";
+      assert.equal(p.get("ground").value, expected, linked + "/" + remembered);
+      assert.equal(p.get("h1").value, SAMPLE[expected].h1 || "");
+      assert.equal(p.get("app").hidden, false);
+      assert.deepEqual(p.errors, []);
+    }
+  }
+});
+
+test("a template library selection survives signing in after an unauthenticated visit", async () => {
+  const p = page();
+  p.saved.set("hl-tpl", "t1");
+  p.ctx.location.search = "?template=t11";
+  p.run("refreshStatus = actualRefreshStatus");
+  const firstBoot = p.run("boot()");
+  assert.equal(p.requests[0].url, "/api/status");
+  p.requests[0].resolve({ error: "Sign in first.", code: "login" }, 401);
+  await firstBoot;
+  assert.equal(p.get("login").hidden, false);
+  assert.equal(p.get("app").hidden, true);
+  assert.equal(p.ctx.location.search, "?template=t11", "sign-in must retain the requested template");
+  const signingIn = p.event("pwgo", "click");
+  assert.equal(p.requests[1].url, "/api/login");
+  p.requests[1].resolve({ ok: true });
+  await signingIn;
+  assert.equal(p.requests[2].url, "/api/status");
+  p.requests[2].resolve({ composed: TPL_ORDER, creditsPerRender: 2, renderer: { connected: true } });
+  await flush();
+  assert.equal(p.get("ground").value, "t11");
+  assert.equal(p.get("h1").value, SAMPLE.t11.h1);
+  assert.equal(p.get("h2").value, SAMPLE.t11.h2);
+  assert.equal(p.get("app").hidden, false);
+  assert.equal(p.get("login").hidden, true);
+  assert.equal(p.ctx.location.search, "");
+  assert.equal(p.saved.get("hl-tpl"), "t11");
+  assert.deepEqual(p.requests.map(r => r.url), ["/api/status", "/api/login", "/api/status"]);
+  assert.deepEqual(p.errors, []);
+});
+
+test("a later template choice survives reload after opening a library link", async () => {
+  const p = page();
+  p.ctx.location.search = "?campaign=summer&template=t6&higgsfield=connected";
+  p.ctx.location.hash = "#builder";
+  p.ctx.history.state = { source: "library" };
+  p.run('status={composed:TPL_ORDER,creditsPerRender:2,renderer:{connected:true}}');
+  await p.run("boot()");
+  assert.equal(p.get("ground").value, "t6");
+  assert.equal(p.saved.get("hl-tpl"), "t6");
+  assert.equal(p.ctx.location.search, "?campaign=summer");
+  assert.equal(p.ctx.location.hash, "#builder");
+  assert.deepEqual(p.ctx.history.state, { source: "library" });
+  p.get("ground").value = "t11";
+  await p.event("ground", "change");
+  const reloaded = page();
+  for (const [key, value] of p.saved) reloaded.saved.set(key, value);
+  Object.assign(reloaded.ctx.location, p.ctx.location);
+  reloaded.run('status={composed:TPL_ORDER,creditsPerRender:2,renderer:{connected:true}}');
+  await reloaded.run("boot()");
+  assert.equal(reloaded.get("ground").value, "t11");
+  assert.equal(reloaded.get("h1").value, SAMPLE.t11.h1);
+  assert.equal(reloaded.ctx.location.search, "?campaign=summer");
+  assert.equal(reloaded.ctx.location.hash, "#builder");
+  assert.equal(reloaded.requests.length, 0);
+  assert.deepEqual(reloaded.errors, []);
+});
 
 test("switching sets rejects delayed polls, including a delayed 404", async () => {
   for (const staleStatus of [200, 404]) {

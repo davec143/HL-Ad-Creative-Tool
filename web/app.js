@@ -770,9 +770,11 @@ async function refreshStatus() {
   if (!status.shopify) tab("url");
 }
 async function boot() {
-  // Start from the remembered template with its sample copy (v16 opened on T1's).
+  // Library links open their chosen template, including after the sign-in form.
   populateTemplates();
-  const t = recall("hl-tpl"); if (t && TPL[t]) $("ground").value = t;
+  const requested = new URLSearchParams(location.search).get("template");
+  const t = TPL_ORDER.includes(requested) ? requested : recall("hl-tpl");
+  if (TPL_ORDER.includes(t)) $("ground").value = t;
   lastTpl = $("ground").value;
   try { await refreshStatus(); } catch (e) { if (e.code === "login") return; fail("The server didn't answer", e.message); }
   const s = sampleFor(lastTpl);
@@ -782,7 +784,16 @@ async function boot() {
   $("saveDrive").addEventListener("change", () => store("hl-save-drive", $("saveDrive").checked ? "1" : "0"));
   if (!status) return;
   $("app").hidden = false; $("login").hidden = true; $("logout").hidden = false;
-  if (new URLSearchParams(location.search).get("higgsfield") === "connected") { history.replaceState(null, "", "/"); logEl.textContent = "Higgsfield connected. Pick a product, check the message, then generate."; }
+  // Consume one-time navigation only after sign-in. Later template changes should survive reload,
+  // while unrelated query parameters and the current anchor remain intact.
+  const query = new URLSearchParams(location.search), connected = query.get("higgsfield") === "connected";
+  if (query.has("template")) { store("hl-tpl", lastTpl); query.delete("template"); }
+  if (connected) query.delete("higgsfield");
+  if (requested !== null || connected) {
+    const search = query.toString();
+    history.replaceState(history.state, "", location.pathname + (search ? "?" + search : "") + location.hash);
+  }
+  if (connected) logEl.textContent = "Higgsfield connected. Pick a product, check the message, then generate.";
   else if (status.renderer.connected) logEl.textContent = "Ready. " + (status.shopify ? "Pick a product" : "Paste a product image URL") + ", check the message, then generate.";
   loadRuns(); loadBatches();
   const batch = recall("hl-batch"), last = recall("hl-run"); if (batch) openBatch(batch, null, last); else if (last) openRun(last);

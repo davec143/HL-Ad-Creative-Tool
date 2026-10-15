@@ -70,6 +70,12 @@ Drive's in-place media update follows the documented
 
 ## October 14: scene layouts, reference templates and batches
 
+The separate `/reference` template library is now generated from the same registry and compositor
+as the builder. It includes all 11 templates, with 33 validated previews and direct template links.
+The six October additions appear first. Run `npm run reference:build` after changing the registry,
+layouts, preview inputs or renderer; CI rejects a stale generated library. Previews use schematic
+room/product placeholders, without copying private reference imagery into this public repository.
+
 The builder now offers all six supplied October reference families (T6–T11), each at three
 placement sizes. Original T1–T5 prompt/finishing parity remains isolated from these composed-only
 extensions. The reference artwork and validation gallery are kept outside this public repository.

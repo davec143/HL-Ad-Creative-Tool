@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "reference:build": "node tools/build-reference.mjs",
     "test": "npm run test:js && npm run test:py",
     "test:js": "node --test tests/*.test.mjs",
     "test:py": "python3 -m pytest -q tests",

@@ -1,8 +1,8 @@
 // HitLights brand system, Logo Grid and template library for the Ad Builder.
 // Extracted verbatim from builder v16 (legacy/v16/source/b_script.js) by tools/extract-brand.cjs.
 // This file is now the source of truth. Any change here must keep tests/parity.test.mjs green
-// (or be added there as a documented deviation). Original five families match
-// reference/HitLights_Ad_Templates.html; the six October 2026 additions are composed-only.
+// (or be added there as a documented deviation). The visual library at
+// reference/HitLights_Ad_Templates.html is generated from this registry and the compositor.
 
 export const BRAND = {
   "purpleDeep": "#523875",

@@ -900,7 +900,7 @@ export class Pipeline {
   // same prepared pixels. Keep the paid original; never resubmit a render here.
   async stepScenePrepare(run) {
     const X = run.scene;
-    if (X.preparation && X.preparation.algo === 1) return false;
+    if (X.preparation && X.preparation.algo === 2) return false;
     const original = X.originalFile || X.file;
     const dir = this.store.runDir(run.id);
     const prepared = path.join(dir, "scene-v" + X.version + "-prepared.png");

@@ -31,7 +31,7 @@ MODEL_DEFAULT = os.environ.get("CUTOUT_MODEL", "/opt/models/isnet-general-use.on
 SIZE = 1024
 MIN_COVER, MAX_COVER = 0.02, 0.97  # share of the frame the product may plausibly fill
 PAD = 0.03
-ALGO = 4  # bump when the cutout method changes: unapproved automatic cutouts are redone
+ALGO = 5  # bump when the cutout method changes: unapproved automatic cutouts are redone
 
 
 def existing_alpha(im):
@@ -197,6 +197,55 @@ def studio_repair(rgb, alpha, base):
     # Colour alone cannot distinguish a white object edge from its white backdrop.
     # Preserve confident model foreground when the photographic boundary is ambiguous.
     out[~retained & (alpha < 220)] = 0
+    return studio_edges(rgb, alpha, out, med, spread)
+
+
+def studio_edges(rgb, prediction, alpha, med, spread):
+    """Remove studio-coloured edge noise without reopening printed white regions.
+
+    Package repair may promote JPEG ringing beside the silhouette. Colour alone
+    cannot remove it safely: a pale box outline may bound a white printed face.
+    Limit this cleanup to the existing silhouette edge and weak model pixels.
+    """
+    h, w = alpha.shape
+    distance = np.abs(rgb.astype(float) - med).max(2)
+    near = distance <= max(12, spread * 3)
+    outside = near & ~enclosed(near)
+    radius = max(2, int(round(min(h, w) / 500)))
+    padded = Image.new("L", (w + 2 * radius, h + 2 * radius), 0)
+    padded.paste(Image.fromarray(alpha), (radius, radius))
+    inner = np.asarray(padded.filter(ImageFilter.MinFilter(radius * 2 + 1)))[radius:-radius, radius:-radius]
+    out = alpha.copy()
+    weak_background = outside & (prediction < 64) & (alpha > 0)
+    out[weak_background & (inner < 128)] = 0
+    # JPEG ringing can form a thicker strip where the product nearly touches
+    # the photo border. Remove only small, model-rejected exterior components.
+    for pixels in components(weak_background):
+        lo, hi = pixels.min(0), pixels.max(0)
+        touches = lo[0] == 0 or lo[1] == 0 or hi[0] == w - 1 or hi[1] == h - 1
+        if touches and len(pixels) < np.count_nonzero(alpha > 127) * .01:
+            out[pixels[:, 1], pixels[:, 0]] = 0
+
+    # A model can extend a thin strip of the studio floor to the image bottom.
+    # Remove only a small, flat, exact-backdrop tail of a colourful product; a
+    # solid white object, larger white region or interior printed area is kept.
+    chroma = rgb.max(2).astype(int) - rgb.min(2).astype(int)
+    solid = out > 127
+    if solid.any() and np.mean(chroma[solid] > 64) >= .05:
+        exact = distance <= max(4, spread * 2)
+        tails = exact & ~enclosed(exact) & (out > 0)
+        for pixels in components(tails):
+            x0, y0 = pixels.min(0)
+            x1, y1 = pixels.max(0)
+            height, width = y1 - y0 + 1, x1 - x0 + 1
+            # The extension follows a broad silhouette and tapers irregularly.
+            # A rectangular white foot or a rail attached by a narrow stem is
+            # plausible hardware, even at the canvas edge, and must survive.
+            above = np.mean(solid[y0 - 1, x0:x1 + 1]) if y0 > 0 else 0
+            fill = len(pixels) / (width * height)
+            if (y1 == h - 1 and height <= max(3, h * .02) and above >= .8 and
+                    fill < .8 and width > 10 * height and len(pixels) < solid.sum() * .01):
+                out[pixels[:, 1], pixels[:, 0]] = 0
     return out
 
 

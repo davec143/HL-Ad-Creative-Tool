@@ -101,3 +101,31 @@ inspect 27 real-room/product compositions, and exercise a five-set browser workf
 Scene checks screen defined defects, not overall design quality. Product review and failed-output
 holds remain explicit. Provider/LLM/Drive fault injection uses test doubles; production verification
 uses free previews and existing scenes instead of buying stress-test renders.
+
+## October 15: six templates with real product photos
+
+The T6–T11 validation matrix uses three original product photos (dimmer, COB strip and Luma5
+strip), fresh transparent cutouts and three existing room photographs. All six templates are
+composed for each product at 1080×1080, 1080×1920 and 1200×628: 54 JPEGs. T6 retains its intended
+graphic background. Private source photos, cutout comparisons, output images and checksums remain
+outside this public repository.
+
+Real-photo inspection exposed remaining studio-white edge fragments, a narrow white sliver beside
+the COB package and a thin studio-floor extension under the Luma5 reel. Cutout algorithm 5 removes
+outside-connected backdrop pixels only with weak model support at the silhouette, or tightly
+bounded small border components. Its bottom-extension rule requires a tiny tapered region with
+broad product support above. Regression controls preserve a pale connector, an attached white
+rail, white hardware, printed white packaging and genuine mounting openings. Source RGB remains
+unchanged. Automatic cutouts from older algorithms refresh; approved and uploaded cutouts remain
+unchanged.
+
+Scene preparation algorithm 2 also removes tiny compressed near-white frames and their single-pixel
+grey fringe. The narrow-frame pass is bounded to four pixels plus one fringe pixel, preserves broad
+pale walls and unaccompanied grey edges, and retains the existing minimum image size. Older cached
+preparation is upgraded from the paid original on free recomposition, invalidating checks and output
+only when the scene pixels change. No paid scene resubmission is involved.
+
+Verification includes actual Chromium composition, exact output dimensions, JPEG decoding, the
+460,000-byte limit, source/cutout/output hashes, ZIP integrity, visual inspection of all 54 outputs,
+and original/transparent/violet/dark cutout comparisons. The real-model transformation matrix is
+rerun on algorithm 5; its scope remains the six transformations and three products described above.

@@ -296,7 +296,7 @@ test("existing rejected scene: repair padding, check the repaired pixels, and re
   const oldFile = r.scene.file;
   // Reproduce the production provider's square file with a tall photo and white margins.
   execFileSync(PY, ["-c", `from PIL import Image, ImageDraw\nim=Image.new('RGB',(1000,1000),'white')\nImageDraw.Draw(im).rectangle((160,0,839,949),fill=(40,30,20))\nim.save(${JSON.stringify(store.filePath(r.id, oldFile))},'PNG')`]);
-  delete r.scene.preparation;
+  r.scene.preparation = { ok: true, algo: 1, cropped: false, box: [0, 0, 1000, 1000] };
   r.scene.qa = { state: "fail", version: 1, issues: ["White vertical borders"] };
   r.items[0].override = { version: r.items[0].version, file: r.items[0].file };
   store.saveRun(r);
@@ -308,6 +308,7 @@ test("existing rejected scene: repair padding, check the repaired pixels, and re
   assert.equal(r.scene.originalFile, oldFile);
   assert.ok(fs.existsSync(store.filePath(r.id, oldFile)), "original is preserved");
   assert.deepEqual(r.scene.preparation.box, [160, 0, 840, 950]);
+  assert.equal(r.scene.preparation.algo, 2, "older preparation cache is upgraded");
   assert.equal(r.scene.qa.state, "pass");
   assert.equal(llm.calls.length, 2, "cropping invalidates the old QA result");
   assert.ok(r.items.every((x) => x.file && x.output.ok && !x.override && deliverability(x).deliverable));

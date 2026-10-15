@@ -108,3 +108,77 @@ def test_small_silver_connector_below_package_is_not_a_floor_reflection():
     alpha[375:386, 264:278] = 0
     result, _ = cutout.refine(rgb, alpha)
     assert result[380, 272] == 255
+
+
+def test_studio_edge_ringing_is_removed_without_reopening_white_package():
+    rgb, alpha = studio_fixture()
+    rgb, alpha = rgb.copy(), alpha.copy()
+    # JPEG ringing just above and beside the printed box is almost white. The
+    # package-restoration pass used to promote these exterior specks to opaque.
+    rgb[37:40, 90:210] = 248
+    rgb[100:300, 261:264] = 248
+    alpha[37:40, 90:210] = 30
+    alpha[100:300, 261:264] = 30
+    result, _ = cutout.refine(rgb, alpha)
+    assert result[38, 150] == 0
+    assert result[200, 263] == 0
+    assert result[150, 150] == 255, 'interior white packaging remains solid'
+    assert result[60, 150] == 255, 'white printed logo remains solid'
+    assert result[250, 440] == 255, 'actual white product remains solid'
+
+
+def test_small_model_confident_studio_tail_at_image_bottom_is_removed():
+    rgb, alpha = studio_fixture()
+    rgb, alpha = rgb.copy(), alpha.copy()
+    # A flat slab of exact studio white can be retained by the model below a
+    # colourful product at the photograph boundary, despite having no edge.
+    rgb[450:491, 180:401] = (85, 30, 140)
+    alpha[450:491, 180:401] = 255
+    a = Image.fromarray(alpha)
+    ImageDraw.Draw(a).polygon([(180, 499), (400, 499), (290, 491)], fill=255)
+    result, _ = cutout.refine(rgb, np.asarray(a))
+    assert not result[491:500, 180:401].any()
+    assert result[490, 300] == 255
+    assert result[150, 150] == 255
+
+
+def test_white_product_touching_image_bottom_is_not_treated_as_studio_tail():
+    rgb = np.full((300, 300, 3), 255, np.uint8)
+    rgb[50:300, 70:230] = 253
+    alpha = np.zeros((300, 300), np.uint8)
+    alpha[50:300, 70:230] = 255
+    result, _ = cutout.refine(rgb, alpha)
+    assert np.array_equal(result, alpha)
+
+
+def test_near_white_fringe_at_canvas_edge_uses_outside_transparency():
+    rgb, alpha = studio_fixture()
+    rgb, alpha = rgb.copy(), alpha.copy()
+    rgb[50:450, 590:600] = (85, 30, 140)
+    alpha[50:450, 590:600] = 255
+    rgb[50:450, 597:600] = 248
+    alpha[50:450, 597:600] = 30
+    result, _ = cutout.refine(rgb, alpha)
+    assert result[200, 599] == 0
+    assert result[200, 595] == 255
+
+
+
+def test_pale_model_supported_connector_is_not_erased_as_edge_noise():
+    rgb, alpha = studio_fixture()
+    rgb, alpha = rgb.copy(), alpha.copy()
+    rgb[329:333, 260:351] = 248
+    alpha[329:333, 260:351] = 190
+    result, _ = cutout.refine(rgb, alpha)
+    assert np.all(result[329:333, 262:349] == 255)
+
+
+def test_white_rail_attached_to_colored_product_is_not_a_background_tail():
+    rgb, alpha = studio_fixture()
+    rgb, alpha = rgb.copy(), alpha.copy()
+    rgb[360:497, 240:244] = 100
+    alpha[360:497, 240:244] = 255
+    rgb[497:500, 180:400] = 253
+    alpha[497:500, 180:400] = 255
+    result, _ = cutout.refine(rgb, alpha)
+    assert np.all(result[497:500, 180:400] == 255)

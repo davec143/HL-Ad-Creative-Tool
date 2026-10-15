@@ -14,7 +14,7 @@ const ENCODE = path.join(ROOT, "finishing", "encode.py");
 const SHA = /^[0-9a-f]{64}$/;
 // Cutout method version (finishing/cutout.py ALGO). An automatic cutout made by an older method and
 // not yet approved is redone; approved and uploaded cutouts are never touched.
-export const CUTOUT_ALGO = 4;
+export const CUTOUT_ALGO = 5;
 export const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 const cutoutLocks = new Map(); // one replica; shared by every store instance in this process
 const unique = () => process.pid + "." + crypto.randomBytes(8).toString("hex");

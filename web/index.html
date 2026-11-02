@@ -7,6 +7,7 @@
 <link rel="icon" href="/assets/logos/hitlights-mark.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/channels.css">
 </head>
 <body>
 <header class="mast"><div class="mast-in">
@@ -31,6 +32,11 @@
 
   <div id="app" hidden>
   <div id="gate" class="gate" hidden></div>
+
+  <nav class="apptabs" role="tablist" aria-label="Tool">
+    <button type="button" role="tab" id="apptab-ads" aria-selected="true">Meta ad creatives</button>
+    <button type="button" role="tab" id="apptab-channels" aria-selected="false" aria-controls="channels">Social, banners &amp; email</button>
+  </nav>
 
   <div class="cols">
     <div>
@@ -247,9 +253,11 @@
       <div class="rowbtn"><a class="btn-quiet" href="/reference" target="_blank" rel="noopener" style="text-decoration:none">Open the template library ↗</a></div>
     </div>
   </div>
+  <section id="channels" class="channels" role="tabpanel" aria-labelledby="apptab-channels" hidden></section>
   </div>
 </div>
 <script src="/clarity.js" defer></script>
 <script type="module" src="/app.js"></script>
+<script type="module" src="/channels.js"></script>
 </body>
 </html>

@@ -14,6 +14,7 @@ import { createApp } from "./app.mjs";
 import { selfCheck, InstanceLock } from "./selfcheck.mjs";
 import { Obs } from "./obs.mjs";
 import { Composer } from "../composer/render.mjs";
+import { ChannelStudio } from "./channels.mjs";
 
 const SHUTDOWN_GRACE_MS = Number(process.env.SHUTDOWN_GRACE_MS || 20000);
 
@@ -43,9 +44,11 @@ catch (e) { warnings.push(e.message); obs.log("warn", "drive_config", { message:
 const composer = new Composer();
 const pipeline = new Pipeline({ cfg, store, renderer, llm, drive, composer, obs: new Obs({ store }), log: { error: (...a) => obs.log("error", "pipeline", { detail: a.join(" ").slice(0, 300) }) } });
 
+const channels = new ChannelStudio({ cfg, store, cutouts: pipeline.cutouts, fetchSource: pipeline.fetchSource });
+
 let shuttingDown = false;
 const readiness = async () => ({ ok: check.ok && !shuttingDown, shuttingDown, checks: check.checks.map((c) => ({ name: c.name, ok: c.ok })) });
-const server = http.createServer(createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings, readiness }));
+const server = http.createServer(createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings, readiness, channels }));
 server.requestTimeout = 5 * 60 * 1000;
 server.listen(cfg.port, () => {
   obs.log("info", "listening", { url: cfg.publicUrl, renderer: cfg.renderer, llm: cfg.llmProvider, draftModel: llm ? cfg.llmDraftModel : undefined, qaModel: llm ? cfg.llmQaModel : undefined, requireFidelity: cfg.requireFidelity });
@@ -62,6 +65,7 @@ async function shutdown(signal) {
   await Promise.race([pipeline.idle(), new Promise((r) => setTimeout(r, SHUTDOWN_GRACE_MS).unref())]);
   try { await renderer.close(); } catch { /* best effort */ }
   try { await composer.close(); } catch { /* best effort */ }
+  try { await channels.close(); } catch { /* best effort */ }
   lock.release();
   obs.log("info", "shutdown_done", { signal, busy: pipeline.busy() || undefined });
   // No process.exit(): the event loop drains and Node exits on its own. A hard stop is the platform's.

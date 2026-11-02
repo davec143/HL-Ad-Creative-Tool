@@ -19,6 +19,28 @@ responses arriving out of order, product-variant photo selection, interrupted Dr
 restart recovery, bounded image downloads, and smaller/off-white studio product photos. See
 [`docs/RELIABILITY.md`](docs/RELIABILITY.md) for the tested scope and repeatable checks.
 
+## Social, banners & email tab
+
+A second tab on the same page builds **non-ad marketing images**. It is a separate tool: its own
+code (`core/channels.mjs`, `composer/channel-page.mjs`, `server/channels.mjs`, `web/channels.*`),
+its own API (`/api/channels/*`), its own Chromium instance and its own storage
+(`DATA_DIR/channels/`, pruned after 7 days). It creates no runs, batches, attempts or credit
+reservations, and never calls Higgsfield. The only shared pieces are read-only: catalog search,
+the product-cutout store (a photo approved in either tab is approved in both) and existing
+ad-set scene photos offered as free backgrounds.
+
+| Channel | Sizes |
+|---|---|
+| Social posts | Feed 1080×1350, square 1080×1080, story 1080×1920 (UI zones kept clear), landscape 1200×630, X 1600×900, Pinterest 1000×1500 |
+| Banners | Website hero 1920×720, mobile hero 800×1000, promo strip 1200×300, Facebook cover 1640×624, LinkedIn cover 1128×191, YouTube 2560×1440 (centre safe area) |
+| Email | Hero 1200×600, product feature 1200×800, header 1200×300, promo strip 1200×280 (all 2× retina) |
+
+Three layout styles per channel (product, text-led, promo), four backgrounds (brand violet, night
+glow, cream, photo). *Write it for me* drafts the image text plus the caption and hashtags
+(social) or subject line and preheader (email) and alt text, through the same fact guard as ad
+drafts; offers are never drafted. A file is ready to download only when its layout check passed
+and any product cutout is approved.
+
 ## How a set is made
 
 ### All 11 templates: composed (the image model never draws the ad)

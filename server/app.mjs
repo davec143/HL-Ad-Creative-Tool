@@ -11,11 +11,14 @@ import { fileName, blockingFlags, PipelineError, fingerprint } from "./pipeline.
 import { deliverability } from "../core/gates.mjs";
 import { guardDraft } from "../core/facts.mjs";
 import { Sessions, LoginLimiter, parseCookies, originOk, checkImageUrl, securityHeaders } from "./security.mjs";
+import { ChannelStudio, channelRoutes } from "./channels.mjs";
 
 const STATIC = {
   "/": "web/index.html", "/app.js": "web/app.js", "/styles.css": "web/styles.css",
   "/core/engine.mjs": "core/engine.mjs", "/core/brand.mjs": "core/brand.mjs", "/core/composed.mjs": "core/composed.mjs",
   "/core/batch-templates.mjs": "core/batch-templates.mjs",
+  // Social / banner / email studio (a separate tab; see server/channels.mjs).
+  "/channels.js": "web/channels.js", "/channels.css": "web/channels.css", "/core/channels.mjs": "core/channels.mjs",
   "/assets/logos/hitlights-logo-white.png": "assets/logos/hitlights-logo-white.png",
   "/assets/logos/hitlights-logo-black.png": "assets/logos/hitlights-logo-black.png",
   "/assets/logos/hitlights-mark.png": "assets/logos/hitlights-mark.png",
@@ -91,7 +94,7 @@ export function publicBatch(batch, { store, ...opts }) {
   };
 }
 
-export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings = [], readiness = null }) {
+export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive, warnings = [], readiness = null, channels = null }) {
   const PR = { requireFidelity: !!cfg.requireFidelity, cutouts: pipeline.cutouts, store };
   const https = cfg.publicUrl.startsWith("https:");
   const publicOrigin = new URL(cfg.publicUrl).origin;
@@ -481,6 +484,9 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       res.writeHead(302, { Location: "/?higgsfield=connected" }); res.end();
     }],
   ];
+  // Social / banner / email studio: its own routes and renderer, no shared run state.
+  const studio = channels || new ChannelStudio({ cfg, store, cutouts: pipeline.cutouts, fetchSource: pipeline.fetchSource });
+  routes.push(...channelRoutes({ studio, llm, cfg, body, send, HttpError, actorOf, zip }));
 
   function serveStatic(req, res, pathname) {
     const rel = STATIC[pathname]; if (!rel) return false;

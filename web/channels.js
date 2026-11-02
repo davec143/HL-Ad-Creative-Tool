@@ -25,11 +25,13 @@ function showTool(which) {
   $("apptab-ads").setAttribute("aria-selected", String(!ch));
   $("apptab-channels").setAttribute("aria-selected", String(ch));
   remember("hl-tool", which);
-  if (ch && !built) { build(); built = true; }
+  if (ch && !built) {
+    try { build(); built = true; }
+    catch (e) { section.textContent = "This tab couldn't load: " + e.message + " Reload the page; if it keeps happening, tell Dave."; console.error(e); }
+  }
 }
 $("apptab-ads").addEventListener("click", () => showTool("ads"));
 $("apptab-channels").addEventListener("click", () => showTool("channels"));
-if (recall("hl-tool") === "channels" || location.hash === "#social") showTool("channels");
 
 // ---------- state ----------
 const S = {
@@ -326,3 +328,6 @@ function paintSet() {
   }
   paintExtra();
 }
+
+// Reopen the tab the person last used. This must run last: build() needs every declaration above.
+if (recall("hl-tool") === "channels" || location.hash === "#social") showTool("channels");

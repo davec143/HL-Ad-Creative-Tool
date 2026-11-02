@@ -13,6 +13,7 @@ import { Pipeline } from "../server/pipeline.mjs";
 import { FakeRenderer } from "../server/render/fake.mjs";
 import { readConfig, ROOT } from "../server/config.mjs";
 import { ChannelStudio, draftChannelCopy } from "../server/channels.mjs";
+import { Composer } from "../composer/render.mjs";
 import { CHANNELS, CHANNEL_SAMPLE, safeArea, modeFor, checkChannelFields } from "../core/channels.mjs";
 
 const PY = process.env.PYTHON || (fs.existsSync(path.join(ROOT, ".venv/bin/python")) ? path.join(ROOT, ".venv/bin/python") : "python3");
@@ -80,7 +81,7 @@ async function boot(env = {}, over = {}) {
     const ct = r.headers.get("content-type") || "";
     return { status: r.status, headers: r.headers, json: ct.includes("json") ? await r.json() : null, buf: ct.includes("json") ? null : Buffer.from(await r.arrayBuffer()) };
   };
-  return { cfg, store, pipeline, cutouts, channels, req, close: async () => { await channels.close(); await new Promise((r) => server.close(r)); } };
+  return { cfg, store, pipeline, cutouts, channels, req, base, close: async () => { await channels.close(); await new Promise((r) => server.close(r)); } };
 }
 
 test("studio API is behind the same sign-in and cross-site checks as the ad builder", async () => {
@@ -155,4 +156,22 @@ test("drafting: invented figures and offers are kept out; the offer is never dra
   assert.equal(r.draft.cta, "Shop now");
   assert.equal(r.draft.hashtags, "#LED #DIY");
   assert.ok(r.violations.length >= 3);
+});
+
+test("page: the tab reopens with its content after a reload (remembered tab) and switching keeps the ad builder intact", { timeout: 120000 }, async () => {
+  const a = await boot(), host = new Composer();
+  try {
+    const page = await (await host.ensure()).newPage();
+    const errors = []; page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(a.base + "/");
+    await page.click("#apptab-channels");
+    await page.waitForSelector("#chGo");
+    await page.reload(); // hl-tool=channels is now remembered
+    await page.waitForSelector("#chGo", { timeout: 10000 });
+    assert.equal(await page.evaluate(() => document.getElementById("channels").hidden), false);
+    await page.click("#apptab-ads");
+    assert.equal(await page.isVisible("#ground"), true, "ad builder visible again");
+    assert.equal(await page.isVisible("#chGo"), false);
+    assert.deepEqual(errors, []);
+  } finally { await host.close(); await a.close(); }
 });

@@ -204,3 +204,23 @@ test("a run with older product pixels is shown held until it is recomposed", asy
     assert.match(visible.cutout.image, new RegExp("v=" + current.revision + "$"));
   } finally { await a.close(); }
 });
+
+test("usage analytics: sign-in name is recorded and Clarity loads only when configured", async () => {
+  const off = await boot();
+  try {
+    const r = await off.req("/clarity.js");
+    assert.equal(r.status, 200);
+    assert.doesNotMatch(r.buf.toString(), /clarity\.ms/);
+    assert.doesNotMatch(r.headers.get("content-security-policy"), /clarity/);
+  } finally { await off.close(); }
+  const a = await boot({ APP_PASSWORD: "hunter2", SESSION_SECRET: "s".repeat(40), CLARITY_PROJECT_ID: "abc123xyz" });
+  try {
+    assert.match((await a.req("/")).headers.get("content-security-policy"), /script-src 'self' https:\/\/www\.clarity\.ms/);
+    assert.doesNotMatch((await a.req("/clarity.js")).buf.toString(), /identify/, "no identity before sign-in");
+    const ok = await a.req("/api/login", { method: "POST", body: { name: "Danah <x>", password: "hunter2" } });
+    const cookie = ok.headers.get("set-cookie").split(";")[0];
+    const js = (await a.req("/clarity.js", { headers: { cookie } })).buf.toString();
+    assert.match(js, /"abc123xyz"/);
+    assert.match(js, /identify","Danah x"/, "name is sanitised and identifies the session");
+  } finally { await a.close(); }
+});

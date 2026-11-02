@@ -22,6 +22,7 @@
   <div class="card login" id="login" hidden>
     <h2>Sign in</h2>
     <div class="bd">
+      <div class="f"><label for="whoami">Your name</label><input type="text" id="whoami" autocomplete="name" maxlength="60" placeholder="e.g. Kryz" style="width:100%;font-size:15px;padding:9px 11px;border:1px solid var(--line-strong);border-radius:4px;background:var(--ground);color:var(--text)"></div>
       <div class="f"><label for="pw">Team password</label><input type="password" id="pw" autocomplete="current-password" style="width:100%;font-size:15px;padding:9px 11px;border:1px solid var(--line-strong);border-radius:4px;background:var(--ground);color:var(--text)"></div>
       <button class="btn-gold" id="pwgo">Sign in</button>
       <p class="hint" id="pwhint"></p>
@@ -248,6 +249,7 @@
   </div>
   </div>
 </div>
+<script src="/clarity.js" defer></script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

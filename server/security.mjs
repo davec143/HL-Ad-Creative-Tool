@@ -27,11 +27,13 @@ export class Sessions {
   }
   sign(payload) { return payload + "." + crypto.createHmac("sha256", this.secret).update(payload).digest("base64url"); }
   list() { return this.store.getState("sessions", {}); }
-  create() {
+  // `name` is who signed in (typed at sign-in). The team shares one password, so this is self-reported,
+  // but it attributes runs, approvals and analytics sessions to a person instead of an anonymous session.
+  create({ name = "" } = {}) {
     const sid = crypto.randomBytes(18).toString("base64url"), iat = this.now(), exp = iat + this.ttl;
     const all = this.list();
     for (const [k, v] of Object.entries(all)) if (!v || v.exp < iat) delete all[k]; // prune
-    all[sid] = { iat, exp };
+    all[sid] = { iat, exp, ...(name ? { name } : {}) };
     this.store.setState("sessions", all);
     return { token: this.sign(b64(JSON.stringify({ sid, iat, exp }))), sid, exp };
   }
@@ -47,7 +49,7 @@ export class Sessions {
       if (!p || typeof p.sid !== "string" || typeof p.exp !== "number" || p.exp <= this.now()) return null;
       const s = this.list()[p.sid];
       if (!s || s.exp <= this.now()) return null;
-      return p;
+      return s.name ? { ...p, name: s.name } : p;
     } catch { return null; }
   }
   revoke(sid) { const all = this.list(); if (all[sid]) { delete all[sid]; this.store.setState("sessions", all); } }
@@ -97,7 +99,11 @@ export function checkImageUrl(raw, { shopifyStore } = {}) {
   return { ok: true, url: u.toString(), source: shopify ? "shopify" : "external" };
 }
 
-export function securityHeaders(res, { https, reference = false }) {
+// Microsoft Clarity (usage analytics) hosts, allowed only when CLARITY_PROJECT_ID is set.
+const CLARITY_SCRIPT = "https://www.clarity.ms https://scripts.clarity.ms";
+const CLARITY_CONNECT = "https://*.clarity.ms https://c.bing.com";
+
+export function securityHeaders(res, { https, reference = false, clarity = false }) {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("X-Frame-Options", "DENY");
@@ -106,9 +112,10 @@ export function securityHeaders(res, { https, reference = false }) {
   // Scripts only from this app. Inline styles are allowed because the v16 markup uses style
   // attributes; no inline scripts anywhere.
   res.setHeader("Content-Security-Policy", [
-    "default-src 'self'", reference ? "script-src 'none'" : "script-src 'self'",
+    "default-src 'self'", reference ? "script-src 'none'" : (clarity ? `script-src 'self' ${CLARITY_SCRIPT}` : "script-src 'self'"),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
-    "img-src 'self' data: https://cdn.shopify.com", "connect-src 'self'",
+    clarity ? `img-src 'self' data: https://cdn.shopify.com ${CLARITY_CONNECT}` : "img-src 'self' data: https://cdn.shopify.com",
+    clarity ? `connect-src 'self' ${CLARITY_CONNECT}` : "connect-src 'self'",
     "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'", "object-src 'none'",
   ].join("; "));
   if (https) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");

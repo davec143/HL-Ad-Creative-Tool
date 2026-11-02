@@ -143,7 +143,9 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
     return new HttpError(status, e.message, e.code);
   }
   // Shared team password: the actor is the session, not a person (see the SSO ADR).
-  function actorOf(req) { const s = session(req); return s ? "team-session:" + String(s.sid).slice(0, 8) : null; }
+  // The name typed at sign-in (self-reported) is recorded with the session id.
+  function actorOf(req) { const s = session(req); if (!s) return null; const id = "team-session:" + String(s.sid).slice(0, 8); return s.name ? `${s.name} (${id})` : id; }
+  const cleanName = (v) => String(v == null ? "" : v).replace(/[\u0000-\u001f<>"]/g, "").trim().slice(0, 60);
   function runOr404(id) { const r = store.getRun(id); if (!r) throw new HttpError(404, "No such set."); return r; }
 
   const routes = [
@@ -155,8 +157,24 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
       const a = crypto.createHash("sha256").update(String(b.password || "")).digest(), p = crypto.createHash("sha256").update(cfg.appPassword).digest();
       if (!crypto.timingSafeEqual(a, p)) { await new Promise((r) => setTimeout(r, 400)); throw new HttpError(401, "Wrong password.", "bad_password"); }
       limiter.success(who);
-      const s = sessions.create();
+      const name = cleanName(b.name);
+      const s = sessions.create({ name });
+      console.log(JSON.stringify({ level: "info", event: "login", name: name || null, sid: s.sid.slice(0, 8) }));
       send(res, 200, { ok: true, expires: s.exp }, { "Set-Cookie": `${sessionName}=${encodeURIComponent(s.token)}${cookieAttrs(Math.floor((s.exp - Date.now()) / 1000))}` });
+    }, { open: true }],
+
+    // Microsoft Clarity loader: an external file because the CSP forbids inline scripts.
+    ["GET", /^\/clarity\.js$/, async (req, res) => {
+      const id = cfg.clarityProjectId;
+      let js = "/* usage analytics off */\n";
+      if (id) {
+        const s = session(req), q = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+        js = `(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script",${q(id)});\n`
+          + `window.clarity("set","app","ad-creative-tool");\n`
+          + (s && s.name ? `window.clarity("identify",${q(s.name)},null,null,${q(s.name)});\nwindow.clarity("set","user",${q(s.name)});\n` : "");
+      }
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(js);
     }, { open: true }],
 
     ["POST", /^\/api\/logout$/, async (req, res) => {
@@ -475,7 +493,7 @@ export function createApp({ cfg, store, pipeline, renderer, shopify, llm, drive,
   return async function handler(req, res) {
     let url;
     try { url = new URL(req.url, "http://x"); } catch { res.writeHead(400); return res.end(); }
-    securityHeaders(res, { https, reference: url.pathname === "/reference" });
+    securityHeaders(res, { https, reference: url.pathname === "/reference", clarity: !!cfg.clarityProjectId });
     try {
       if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, { ok: true });
       if (req.method === "GET" && url.pathname === "/readyz") {

@@ -94,6 +94,7 @@ test("a template library selection survives signing in after an unauthenticated 
   assert.equal(p.get("login").hidden, false);
   assert.equal(p.get("app").hidden, true);
   assert.equal(p.ctx.location.search, "?template=t11", "sign-in must retain the requested template");
+  p.get("whoami").value = "Kryz";
   const signingIn = p.event("pwgo", "click");
   assert.equal(p.requests[1].url, "/api/login");
   p.requests[1].resolve({ ok: true });

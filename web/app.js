@@ -49,9 +49,18 @@ function recall(k) { try { return localStorage.getItem(k); } catch { return null
 function showLogin() {
   clearTimeout(pollTimer); clearTimeout(batchTimer); batchVersion++; pollVersion++; previewVersion++; searchVersion++; statusVersion++;
   $("login").hidden = false; $("app").hidden = true;
+  if (!$("whoami").value) $("whoami").value = recall("hl-name") || "";
 }
 $("pwgo").addEventListener("click", async () => {
-  try { await api("/api/login", { method: "POST", body: { password: $("pw").value } }); $("login").hidden = true; boot(); }
+  const name = String($("whoami").value || "").trim();
+  if (!name) { $("pwhint").textContent = "Enter your name so your work is credited to you."; return; }
+  try {
+    await api("/api/login", { method: "POST", body: { name, password: $("pw").value } });
+    store("hl-name", name);
+    // Tie this analytics session to the person (the loader only knows after a reload otherwise).
+    if (typeof window !== "undefined" && typeof window.clarity === "function") { window.clarity("identify", name, null, null, name); window.clarity("set", "user", name); }
+    $("login").hidden = true; boot();
+  }
   catch (e) { $("pwhint").textContent = e.message; }
 });
 $("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pwgo").click(); });

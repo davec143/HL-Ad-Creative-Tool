@@ -35,6 +35,8 @@ export function readConfig(env = process.env) {
     appPassword: env.APP_PASSWORD || "",
     sessionSecret: env.SESSION_SECRET || "",
     sessionDays: num(env.SESSION_DAYS, 7),
+    // Microsoft Clarity project ID (usage analytics + session recordings). Empty = off.
+    clarityProjectId: /^[a-z0-9]{4,20}$/i.test(env.CLARITY_PROJECT_ID || "") ? env.CLARITY_PROJECT_ID : "",
     // Behind Railway's proxy the client address is the last X-Forwarded-For hop.
     trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY === "1" : !!env.RAILWAY_ENVIRONMENT_NAME,
 
